@@ -1,1 +1,8 @@
-{}
+{
+  "Identity": {
+    "OpenIddict": {
+      "AccessTokenLifetimeMinutes": 60,
+      "RefreshTokenLifetimeDays": 14
+    }
+  }
+}
