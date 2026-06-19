@@ -1,6 +1,7 @@
 using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Domain;
+using DropUz.Modules.Identity.Application.Roles;
 using DropUz.Modules.Identity.Domain.Users;
 using Microsoft.AspNetCore.Identity;
 
@@ -27,6 +28,7 @@ public sealed class GetCurrentUserQueryHandler(
         }
 
         var roles = (await userManager.GetRolesAsync(user))
+            .Select(IdentityRoleStore.ToApiRoleName)
             .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 

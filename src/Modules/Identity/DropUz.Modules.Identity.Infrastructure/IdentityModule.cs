@@ -1,5 +1,6 @@
 using DropUz.Common.Application.Data;
 using DropUz.Common.Infrastructure.Persistence;
+using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Modules.Identity.Application.Data;
 using DropUz.Modules.Identity.Domain.OpenId;
@@ -45,7 +46,7 @@ public static class IdentityModule
         });
 
         services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
-        services.AddAuthorization();
+        services.AddAuthorization(options => options.AddDropUzRolePolicies());
 
         services
             .AddIdentityCore<User>(options =>

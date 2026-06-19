@@ -29,6 +29,18 @@ public static class AuthenticationErrors
         "Identity.PhoneNumberAlreadyRegistered",
         "Phone number is already registered.");
 
+    public static readonly Error UserNotFound = Error.NotFound(
+        "Identity.UserNotFound",
+        "User was not found.");
+
+    public static readonly Error RoleRequired = Error.Validation(
+        "Identity.RoleRequired",
+        "Role is required.");
+
+    public static readonly Error InvalidRole = Error.Validation(
+        "Identity.InvalidRole",
+        "Role is invalid.");
+
     public static Error IdentityFailure(IEnumerable<IdentityError> errors)
     {
         string[] descriptions = errors
