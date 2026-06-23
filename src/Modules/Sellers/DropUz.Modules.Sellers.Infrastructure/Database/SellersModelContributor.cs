@@ -31,6 +31,7 @@ internal sealed class SellerProfileConfiguration : IEntityTypeConfiguration<Sell
         builder.Property(seller => seller.TotalEarned).HasPrecision(18, 2);
         builder.HasIndex(seller => seller.UserId).IsUnique();
         builder.HasIndex(seller => seller.Slug).IsUnique();
+        builder.HasIndex(seller => seller.CreatedAtUtc);
         builder.HasMany(seller => seller.BalanceTransactions)
             .WithOne()
             .HasForeignKey(transaction => transaction.SellerId);
@@ -48,6 +49,7 @@ internal sealed class SellerProductConfiguration : IEntityTypeConfiguration<Sell
         builder.Property(product => product.MarkupValue).HasPrecision(18, 2);
         builder.HasIndex(product => new { product.SellerId, product.ProductId }).IsUnique();
         builder.HasIndex(product => product.ProductId);
+        builder.HasIndex(product => product.CreatedAtUtc);
     }
 }
 
@@ -61,5 +63,7 @@ internal sealed class SellerBalanceTransactionConfiguration : IEntityTypeConfigu
         builder.Property(transaction => transaction.Note).HasMaxLength(1000);
         builder.HasIndex(transaction => transaction.SellerId);
         builder.HasIndex(transaction => transaction.OrderId);
+        builder.HasIndex(transaction => transaction.CreatedAtUtc);
+        builder.HasIndex(transaction => new { transaction.SellerId, transaction.OrderId, transaction.Type }).IsUnique();
     }
 }

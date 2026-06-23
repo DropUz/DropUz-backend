@@ -16,10 +16,13 @@ public sealed class Order : Entity
     {
         UserId = userId;
         SellerId = sellerId;
+        OrderNumber = GenerateOrderNumber(id, createdAtUtc);
         Status = OrderStatus.PendingProductPayment;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = createdAtUtc;
     }
+
+    public string OrderNumber { get; private set; } = string.Empty;
 
     public Guid UserId { get; private set; }
 
@@ -73,19 +76,26 @@ public sealed class Order : Entity
         return order;
     }
 
-    public void MarkProductPaid(DateTime nowUtc)
+    public bool MarkProductPaid(DateTime nowUtc)
     {
         if (Status != OrderStatus.PendingProductPayment)
         {
-            return;
+            return false;
         }
 
         ProductPaidAtUtc = nowUtc;
         ChangeStatus(OrderStatus.ProductPaid, "Product payment received.", nowUtc);
+
+        return true;
     }
 
-    public void SetCargoPrice(decimal cargoPrice, int deadlineDays, DateTime nowUtc)
+    public bool SetCargoPrice(decimal cargoPrice, int deadlineDays, DateTime nowUtc)
     {
+        if (cargoPrice <= 0m || !CanSetCargoPrice())
+        {
+            return false;
+        }
+
         decimal perItemCargo = _items.Count == 0 ? cargoPrice : decimal.Round(cargoPrice / _items.Count, 2, MidpointRounding.AwayFromZero);
         foreach (OrderItem item in _items)
         {
@@ -96,22 +106,33 @@ public sealed class Order : Entity
         Total = ProductTotal + CargoTotal;
         CargoPaymentDeadlineAt = nowUtc.AddDays(deadlineDays <= 0 ? 7 : deadlineDays);
         ChangeStatus(OrderStatus.PendingCargoPayment, "Cargo price added.", nowUtc);
+
+        return true;
     }
 
-    public void MarkCargoPaid(DateTime nowUtc)
+    public bool MarkCargoPaid(DateTime nowUtc)
     {
         if (Status != OrderStatus.PendingCargoPayment)
         {
-            return;
+            return false;
         }
 
         CargoPaidAtUtc = nowUtc;
         ChangeStatus(OrderStatus.CargoPaid, "Cargo payment received.", nowUtc);
+
+        return true;
     }
 
-    public void UpdateStatus(OrderStatus status, string? note, DateTime nowUtc)
+    public bool UpdateStatus(OrderStatus status, string? note, DateTime nowUtc)
     {
+        if (!CanUpdateStatus(status))
+        {
+            return false;
+        }
+
         ChangeStatus(status, note, nowUtc);
+
+        return true;
     }
 
     public void ExpireCargoPayment(DateTime nowUtc)
@@ -142,5 +163,70 @@ public sealed class Order : Entity
         CargoTotal = _items.Sum(item => item.CargoPrice);
         Total = ProductTotal + CargoTotal;
         SellerProfitTotal = _items.Sum(item => item.SellerProfitTotal);
+    }
+
+    private bool CanSetCargoPrice()
+    {
+        return Status is OrderStatus.ProductPaid
+            or OrderStatus.Purchasing
+            or OrderStatus.Purchased
+            or OrderStatus.InForeignWarehouse
+            or OrderStatus.CargoCalculating
+            or OrderStatus.PendingCargoPayment;
+    }
+
+    private bool CanUpdateStatus(OrderStatus nextStatus)
+    {
+        if (Status == nextStatus || IsTerminal(Status))
+        {
+            return false;
+        }
+
+        if (nextStatus is OrderStatus.Cancelled or OrderStatus.Refunded)
+        {
+            return true;
+        }
+
+        if (nextStatus == OrderStatus.CargoPaymentExpired)
+        {
+            return Status == OrderStatus.PendingCargoPayment;
+        }
+
+        return Status switch
+        {
+            OrderStatus.PendingProductPayment => nextStatus == OrderStatus.ProductPaid,
+            OrderStatus.ProductPaid => nextStatus is OrderStatus.Purchasing
+                or OrderStatus.Purchased
+                or OrderStatus.InForeignWarehouse
+                or OrderStatus.CargoCalculating,
+            OrderStatus.Purchasing => nextStatus is OrderStatus.Purchased
+                or OrderStatus.InForeignWarehouse
+                or OrderStatus.CargoCalculating,
+            OrderStatus.Purchased => nextStatus is OrderStatus.InForeignWarehouse
+                or OrderStatus.CargoCalculating,
+            OrderStatus.InForeignWarehouse => nextStatus == OrderStatus.CargoCalculating,
+            OrderStatus.CargoCalculating => false,
+            OrderStatus.PendingCargoPayment => false,
+            OrderStatus.CargoPaid => nextStatus is OrderStatus.InTransit
+                or OrderStatus.ArrivedUzbekistan
+                or OrderStatus.Delivered,
+            OrderStatus.InTransit => nextStatus is OrderStatus.ArrivedUzbekistan
+                or OrderStatus.Delivered,
+            OrderStatus.ArrivedUzbekistan => nextStatus == OrderStatus.Delivered,
+            _ => false
+        };
+    }
+
+    private static bool IsTerminal(OrderStatus status)
+    {
+        return status is OrderStatus.Delivered
+            or OrderStatus.Cancelled
+            or OrderStatus.Refunded
+            or OrderStatus.CargoPaymentExpired;
+    }
+
+    private static string GenerateOrderNumber(Guid id, DateTime createdAtUtc)
+    {
+        return $"DUZ-{createdAtUtc:yyyyMMdd}-{id:N}"[..25].ToUpperInvariant();
     }
 }

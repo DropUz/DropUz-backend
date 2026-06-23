@@ -31,5 +31,6 @@ internal sealed class CargoPriceRecordConfiguration : IEntityTypeConfiguration<C
         builder.HasKey(record => record.Id);
         builder.Property(record => record.Amount).HasPrecision(18, 2);
         builder.HasIndex(record => record.OrderId);
+        builder.HasIndex(record => record.CreatedAtUtc);
     }
 }

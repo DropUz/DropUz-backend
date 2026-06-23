@@ -63,7 +63,7 @@ public sealed class SellerProfile : Entity
 
     public void RecordProductPayment(Guid orderId, decimal sellerProfit, DateTime nowUtc)
     {
-        if (sellerProfit <= 0m)
+        if (sellerProfit <= 0m || HasBalanceTransaction(orderId, SellerBalanceTransactionType.PendingAdded))
         {
             return;
         }
@@ -83,7 +83,9 @@ public sealed class SellerProfile : Entity
 
     public void ReleaseDeliveredProfit(Guid orderId, decimal sellerProfit, DateTime nowUtc)
     {
-        if (sellerProfit <= 0m)
+        if (sellerProfit <= 0m ||
+            HasBalanceTransaction(orderId, SellerBalanceTransactionType.ProfitAvailable) ||
+            HasBalanceTransaction(orderId, SellerBalanceTransactionType.Reversed))
         {
             return;
         }
@@ -103,7 +105,9 @@ public sealed class SellerProfile : Entity
 
     public void ReversePendingProfit(Guid orderId, decimal sellerProfit, string note, DateTime nowUtc)
     {
-        if (sellerProfit <= 0m)
+        if (sellerProfit <= 0m ||
+            HasBalanceTransaction(orderId, SellerBalanceTransactionType.Reversed) ||
+            HasBalanceTransaction(orderId, SellerBalanceTransactionType.ProfitAvailable))
         {
             return;
         }
@@ -141,5 +145,12 @@ public sealed class SellerProfile : Entity
             nowUtc));
 
         return true;
+    }
+
+    private bool HasBalanceTransaction(Guid orderId, SellerBalanceTransactionType type)
+    {
+        return _balanceTransactions.Any(transaction =>
+            transaction.OrderId == orderId &&
+            transaction.Type == type);
     }
 }

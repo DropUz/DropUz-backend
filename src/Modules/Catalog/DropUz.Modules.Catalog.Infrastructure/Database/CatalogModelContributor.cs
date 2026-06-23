@@ -26,6 +26,7 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
         builder.Property(category => category.Name).HasMaxLength(200).IsRequired();
         builder.Property(category => category.Slug).HasMaxLength(220).IsRequired();
         builder.HasIndex(category => category.Slug).IsUnique();
+        builder.HasIndex(category => category.CreatedAtUtc);
     }
 }
 
@@ -48,6 +49,7 @@ internal sealed class CatalogProductConfiguration : IEntityTypeConfiguration<Cat
         builder.HasIndex(product => new { product.SourcePlatform, product.SourceProductId }).IsUnique();
         builder.HasIndex(product => product.Status);
         builder.HasIndex(product => product.CategoryId);
+        builder.HasIndex(product => product.CreatedAtUtc);
     }
 }
 

@@ -79,7 +79,11 @@ public sealed class RecordCargoPriceCommandHandler(
             cancellationToken);
 
         int deadlineDays = command.DeadlineDays ?? settings.PaymentDeadlineDays;
-        order.SetCargoPrice(command.CargoPrice, deadlineDays, dateTimeProvider.UtcNow);
+        if (!order.SetCargoPrice(command.CargoPrice, deadlineDays, dateTimeProvider.UtcNow))
+        {
+            return Result.Failure<CargoPriceResponse>(CargoErrors.CargoPriceNotAllowed);
+        }
+
         var record = CargoPriceRecord.Create(
             order.Id,
             command.CargoPrice,

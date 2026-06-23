@@ -22,6 +22,7 @@ internal sealed class ShoppingCartConfiguration : IEntityTypeConfiguration<Shopp
         builder.ToTable("carts", Schemas.Cart);
         builder.HasKey(cart => cart.Id);
         builder.HasIndex(cart => new { cart.UserId, cart.SellerId });
+        builder.HasIndex(cart => cart.CreatedAtUtc);
         builder.HasMany(cart => cart.Items)
             .WithOne()
             .HasForeignKey(item => item.CartId);
@@ -36,5 +37,6 @@ internal sealed class CartItemConfiguration : IEntityTypeConfiguration<CartItem>
         builder.ToTable("cart_items", Schemas.Cart);
         builder.HasKey(item => item.Id);
         builder.HasIndex(item => item.ProductId);
+        builder.HasIndex(item => item.CreatedAtUtc);
     }
 }

@@ -27,6 +27,7 @@ internal sealed class NotificationMessageConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(message => message.UserId);
         builder.HasIndex(message => message.OrderId);
         builder.HasIndex(message => message.Status);
+        builder.HasIndex(message => message.CreatedAtUtc);
     }
 }
 

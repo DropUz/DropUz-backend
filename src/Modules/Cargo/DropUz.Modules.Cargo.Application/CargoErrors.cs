@@ -11,4 +11,8 @@ public static class CargoErrors
     public static readonly Error CargoPriceInvalid = Error.Validation(
         "Cargo.CargoPriceInvalid",
         "Cargo price must be greater than zero.");
+
+    public static readonly Error CargoPriceNotAllowed = Error.Validation(
+        "Cargo.CargoPriceNotAllowed",
+        "Cargo price cannot be entered for the current order status.");
 }

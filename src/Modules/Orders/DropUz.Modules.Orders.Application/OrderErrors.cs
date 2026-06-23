@@ -19,4 +19,8 @@ public static class OrderErrors
     public static readonly Error CargoPriceInvalid = Error.Validation(
         "Orders.CargoPriceInvalid",
         "Cargo price must be greater than zero.");
+
+    public static readonly Error InvalidStatusTransition = Error.Validation(
+        "Orders.InvalidStatusTransition",
+        "Order status transition is not allowed.");
 }

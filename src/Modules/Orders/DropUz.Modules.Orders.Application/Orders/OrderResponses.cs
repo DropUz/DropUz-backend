@@ -5,6 +5,7 @@ namespace DropUz.Modules.Orders.Application.Orders;
 
 public sealed record OrderResponse(
     Guid Id,
+    string OrderNumber,
     Guid UserId,
     Guid? SellerId,
     OrderStatus Status,

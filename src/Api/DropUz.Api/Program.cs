@@ -40,7 +40,7 @@ namespace DropUz.Api
             builder.Services.AddOrdersModule();
             builder.Services.AddNotificationsModule();
             builder.Services.AddPaymentsModule();
-            builder.Services.AddCargoModule();
+            builder.Services.AddCargoModule(builder.Configuration);
             builder.Services.AddAdminModule();
             builder.Services.AddControllers();
             builder.Services.AddHealthChecks();

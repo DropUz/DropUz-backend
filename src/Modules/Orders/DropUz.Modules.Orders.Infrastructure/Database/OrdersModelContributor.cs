@@ -22,13 +22,16 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
     {
         builder.ToTable("orders", Schemas.Orders);
         builder.HasKey(order => order.Id);
+        builder.Property(order => order.OrderNumber).HasMaxLength(32).IsRequired();
         builder.Property(order => order.ProductTotal).HasPrecision(18, 2);
         builder.Property(order => order.CargoTotal).HasPrecision(18, 2);
         builder.Property(order => order.Total).HasPrecision(18, 2);
         builder.Property(order => order.SellerProfitTotal).HasPrecision(18, 2);
+        builder.HasIndex(order => order.OrderNumber).IsUnique();
         builder.HasIndex(order => order.UserId);
         builder.HasIndex(order => order.SellerId);
         builder.HasIndex(order => order.Status);
+        builder.HasIndex(order => order.CreatedAtUtc);
         builder.HasMany(order => order.Items)
             .WithOne()
             .HasForeignKey(item => item.OrderId);

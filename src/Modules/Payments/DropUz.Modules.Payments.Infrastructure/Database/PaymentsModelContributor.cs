@@ -25,6 +25,7 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.HasIndex(payment => payment.OrderId);
         builder.HasIndex(payment => payment.UserId);
         builder.HasIndex(payment => payment.Status);
+        builder.HasIndex(payment => payment.CreatedAtUtc);
         builder.HasIndex(payment => payment.ProviderTransactionId).IsUnique();
     }
 }

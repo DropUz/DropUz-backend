@@ -166,7 +166,11 @@ public sealed class AdminSetCargoPriceCommandHandler(
             return Result.Failure<OrderResponse>(OrderErrors.OrderNotFound);
         }
 
-        order.SetCargoPrice(command.CargoPrice, command.DeadlineDays ?? 7, dateTimeProvider.UtcNow);
+        if (!order.SetCargoPrice(command.CargoPrice, command.DeadlineDays ?? 7, dateTimeProvider.UtcNow))
+        {
+            return Result.Failure<OrderResponse>(OrderErrors.InvalidStatusTransition);
+        }
+
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(OrderMapper.Map(order));
@@ -188,11 +192,21 @@ public sealed class AdminUpdateOrderStatusCommandHandler(
             return Result.Failure<OrderResponse>(OrderErrors.OrderNotFound);
         }
 
-        order.UpdateStatus(command.Status, command.Note, dateTimeProvider.UtcNow);
+        OrderStatus previousStatus = order.Status;
+        bool statusChanged = order.UpdateStatus(command.Status, command.Note, dateTimeProvider.UtcNow);
 
-        if (order.SellerId.HasValue)
+        if (!statusChanged && previousStatus != command.Status)
         {
-            SellerProfile? seller = await repository.GetAsync<SellerProfile>(order.SellerId.Value);
+            return Result.Failure<OrderResponse>(OrderErrors.InvalidStatusTransition);
+        }
+
+        if (statusChanged && order.SellerId.HasValue)
+        {
+            SellerProfile? seller = await SellerBalanceLoader.GetSellerWithBalanceTransactionsAsync(
+                repository,
+                order.SellerId.Value,
+                cancellationToken);
+
             if (seller is not null && command.Status == OrderStatus.Delivered)
             {
                 seller.ReleaseDeliveredProfit(order.Id, order.SellerProfitTotal, dateTimeProvider.UtcNow);
@@ -207,6 +221,20 @@ public sealed class AdminUpdateOrderStatusCommandHandler(
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(OrderMapper.Map(order));
+    }
+}
+
+internal static class SellerBalanceLoader
+{
+    internal static Task<SellerProfile?> GetSellerWithBalanceTransactionsAsync(
+        IMainRepository repository,
+        Guid sellerId,
+        CancellationToken cancellationToken)
+    {
+        return repository
+            .Query<SellerProfile>(seller => seller.Id == sellerId)
+            .Include(seller => seller.BalanceTransactions)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }
 
@@ -358,6 +386,7 @@ internal static class OrderMapper
     {
         return new OrderResponse(
             order.Id,
+            order.OrderNumber,
             order.UserId,
             order.SellerId,
             order.Status,

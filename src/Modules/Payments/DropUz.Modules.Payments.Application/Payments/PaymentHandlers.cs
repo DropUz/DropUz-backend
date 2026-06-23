@@ -36,13 +36,30 @@ public sealed class StartPaymentCommandHandler(
         decimal amount = command.Type switch
         {
             PaymentType.ProductPayment when order.Status == OrderStatus.PendingProductPayment => order.ProductTotal,
-            PaymentType.CargoPayment when order.Status == OrderStatus.PendingCargoPayment && order.CargoTotal > 0m => order.CargoTotal,
+            PaymentType.CargoPayment when order.Status == OrderStatus.PendingCargoPayment &&
+                                          order.CargoTotal > 0m &&
+                                          (order.CargoPaymentDeadlineAt is null ||
+                                           order.CargoPaymentDeadlineAt.Value >= dateTimeProvider.UtcNow) => order.CargoTotal,
             _ => 0m
         };
 
         if (amount <= 0m)
         {
             return Result.Failure<PaymentResponse>(PaymentErrors.PaymentNotAllowed);
+        }
+
+        Payment? existingPendingPayment = await repository
+            .Query<Payment>(payment =>
+                payment.OrderId == order.Id &&
+                payment.UserId == order.UserId &&
+                payment.Type == command.Type &&
+                payment.Status == PaymentStatus.Pending)
+            .OrderByDescending(payment => payment.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingPendingPayment is not null)
+        {
+            return Result.Success(PaymentMapper.Map(existingPendingPayment));
         }
 
         Payment payment = Payment.Start(
@@ -62,6 +79,7 @@ public sealed class StartPaymentCommandHandler(
 
 public sealed class ConfirmPaymentCommandHandler(
     IMainRepository repository,
+    ICurrentUser currentUser,
     IDateTimeProvider dateTimeProvider,
     INotificationService notificationService)
     : ICommandHandler<ConfirmPaymentCommand, PaymentResponse>
@@ -72,6 +90,16 @@ public sealed class ConfirmPaymentCommandHandler(
     {
         Payment? payment = await repository.GetAsync<Payment>(command.PaymentId);
         if (payment is null)
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.PaymentNotFound);
+        }
+
+        if (currentUser.UserId is null)
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.UserNotAuthenticated);
+        }
+
+        if (payment.UserId != currentUser.UserId.Value)
         {
             return Result.Failure<PaymentResponse>(PaymentErrors.PaymentNotFound);
         }
@@ -87,20 +115,33 @@ public sealed class ConfirmPaymentCommandHandler(
             return Result.Success(PaymentMapper.Map(payment));
         }
 
-        payment.MarkPaid(command.ProviderTransactionId, dateTimeProvider.UtcNow);
+        DateTime nowUtc = dateTimeProvider.UtcNow;
+        if (!CanConfirmPayment(order, payment, nowUtc))
+        {
+            order.ExpireCargoPayment(nowUtc);
+            await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Result.Failure<PaymentResponse>(PaymentErrors.PaymentNotAllowed);
+        }
+
+        payment.MarkPaid(command.ProviderTransactionId, nowUtc);
 
         if (payment.Type == PaymentType.ProductPayment)
         {
-            order.MarkProductPaid(dateTimeProvider.UtcNow);
+            order.MarkProductPaid(nowUtc);
             if (order.SellerId.HasValue)
             {
-                SellerProfile? seller = await repository.GetAsync<SellerProfile>(order.SellerId.Value);
-                seller?.RecordProductPayment(order.Id, order.SellerProfitTotal, dateTimeProvider.UtcNow);
+                SellerProfile? seller = await repository
+                    .Query<SellerProfile>(x => x.Id == order.SellerId.Value)
+                    .Include(x => x.BalanceTransactions)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                seller?.RecordProductPayment(order.Id, order.SellerProfitTotal, nowUtc);
             }
         }
         else
         {
-            order.MarkCargoPaid(dateTimeProvider.UtcNow);
+            order.MarkCargoPaid(nowUtc);
         }
 
         await notificationService.EnqueueAsync(
@@ -114,6 +155,22 @@ public sealed class ConfirmPaymentCommandHandler(
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(PaymentMapper.Map(payment));
+    }
+
+    private static bool CanConfirmPayment(Order order, Payment payment, DateTime nowUtc)
+    {
+        return payment.Type switch
+        {
+            PaymentType.ProductPayment =>
+                order.Status == OrderStatus.PendingProductPayment &&
+                payment.Amount == order.ProductTotal,
+            PaymentType.CargoPayment =>
+                order.Status == OrderStatus.PendingCargoPayment &&
+                order.CargoTotal > 0m &&
+                payment.Amount == order.CargoTotal &&
+                (order.CargoPaymentDeadlineAt is null || order.CargoPaymentDeadlineAt.Value >= nowUtc),
+            _ => false
+        };
     }
 }
 

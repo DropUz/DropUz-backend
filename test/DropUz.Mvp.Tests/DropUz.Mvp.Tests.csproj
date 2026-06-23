@@ -4,10 +4,13 @@
     <ProjectReference Include="..\..\src\Modules\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sellers\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Domain\DropUz.Modules.Orders.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Cargo\DropUz.Modules.Cargo.Infrastructure\DropUz.Modules.Cargo.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\DropUz.Modules.Payments.Application\DropUz.Modules.Payments.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>

@@ -30,7 +30,7 @@ builder.Services.AddCartModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddNotificationsModule();
 builder.Services.AddPaymentsModule();
-builder.Services.AddCargoModule();
+builder.Services.AddCargoModule(builder.Configuration);
 builder.Services.AddAdminModule();
 
 using IHost host = builder.Build();
