@@ -4,6 +4,7 @@ using DropUz.Common.Application.Data;
 using DropUz.Common.Infrastructure.Clock;
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Common.Infrastructure.Identity;
+using DropUz.Common.Infrastructure.Inbox;
 using DropUz.Common.Infrastructure.Outbox;
 using DropUz.Common.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +27,11 @@ public static class InfrastructureConfiguration
         services.TryAddSingleton<IDateTimeProvider, DateTimeProvider>();
         services.TryAddSingleton<IDatabaseConnectionStringProvider, DatabaseConnectionStringProvider>();
         services.TryAddScoped<InsertOutboxMessagesInterceptor>();
+        services.TryAddSingleton<OutboxMessageTypeResolver>();
+        services.TryAddScoped<OutboxMessageDispatcher>();
+        services.TryAddScoped<OutboxMessageProcessor>();
+        services.AddOptions<OutboxProcessorOptions>();
+        services.Configure<OutboxProcessorOptions>(configuration.GetSection(OutboxProcessorOptions.SectionName));
 
         services.AddDbContext<MainDbContext>((serviceProvider, options) =>
         {
@@ -48,6 +54,8 @@ public static class InfrastructureConfiguration
             serviceProvider.GetRequiredService<UnitOfWork<MainDbContext>>());
         services.TryAddScoped<IMainRepository, MainRepository>();
         services.TryAddScoped<IDatabaseSchemaInitializer, DatabaseSchemaInitializer>();
+        services.TryAddScoped<InboxMessageService>();
+        services.AddHostedService<OutboxMessageProcessorHostedService>();
 
         return services;
     }

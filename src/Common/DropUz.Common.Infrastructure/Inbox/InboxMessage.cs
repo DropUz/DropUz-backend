@@ -1,7 +1,12 @@
 namespace DropUz.Common.Infrastructure.Inbox;
 
+using System.Text.Json;
+using DropUz.Common.Application.EventBus;
+
 public sealed class InboxMessage
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+
     private InboxMessage()
     {
     }
@@ -24,16 +29,34 @@ public sealed class InboxMessage
 
     public DateTime? ProcessedOnUtc { get; private set; }
 
+    public DateTime? LastAttemptedOnUtc { get; private set; }
+
+    public int RetryCount { get; private set; }
+
     public string? Error { get; private set; }
+
+    public static InboxMessage FromIntegrationEvent(IIntegrationEvent integrationEvent)
+    {
+        Type eventType = integrationEvent.GetType();
+
+        return new InboxMessage(
+            integrationEvent.Id,
+            eventType.FullName ?? eventType.Name,
+            JsonSerializer.Serialize(integrationEvent, eventType, SerializerOptions),
+            integrationEvent.OccurredOnUtc);
+    }
 
     public void MarkProcessed(DateTime processedOnUtc)
     {
         ProcessedOnUtc = processedOnUtc;
+        LastAttemptedOnUtc = processedOnUtc;
         Error = null;
     }
 
-    public void MarkFailed(string error)
+    public void MarkFailed(string error, DateTime attemptedOnUtc)
     {
+        LastAttemptedOnUtc = attemptedOnUtc;
+        RetryCount++;
         Error = error;
     }
 }

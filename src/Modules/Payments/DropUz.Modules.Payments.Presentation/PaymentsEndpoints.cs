@@ -1,3 +1,4 @@
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
@@ -21,8 +22,15 @@ public sealed class PaymentsEndpoints : IEndpoint
         payments.MapGet("/status", () => Results.Ok(new { module = "payments", status = "ok" }))
             .WithName("GetPaymentsStatus");
 
-        payments.MapGet("/", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetMyPaymentsQuery(), cancellationToken)).ToHttpResult())
+        payments.MapGet("/", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetMyPaymentsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .RequireUser()
             .WithName("GetMyPayments");
 
@@ -59,8 +67,15 @@ public sealed class PaymentsEndpoints : IEndpoint
             .WithTags("Admin Payments")
             .RequireAdmin();
 
-        admin.MapGet("/", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetAdminPaymentsQuery(), cancellationToken)).ToHttpResult())
+        admin.MapGet("/", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetAdminPaymentsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithName("GetAdminPayments");
     }
 }

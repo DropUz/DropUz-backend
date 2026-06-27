@@ -74,5 +74,27 @@ public sealed class Payment : Entity
         {
             ProviderTransactionId = providerTransactionId;
         }
+
+        switch (Type)
+        {
+            case PaymentType.ProductPayment:
+                RaiseDomainEvent(new ProductPaymentCompletedDomainEvent(
+                    Id,
+                    OrderId,
+                    UserId,
+                    Amount,
+                    nowUtc,
+                    ProviderTransactionId));
+                break;
+            case PaymentType.CargoPayment:
+                RaiseDomainEvent(new CargoPaymentCompletedDomainEvent(
+                    Id,
+                    OrderId,
+                    UserId,
+                    Amount,
+                    nowUtc,
+                    ProviderTransactionId));
+                break;
+        }
     }
 }

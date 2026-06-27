@@ -2,7 +2,9 @@ using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Application.Products;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
@@ -217,7 +219,8 @@ public sealed class SetSellerProductMarkupCommandHandler(
 
 public sealed class RecordSellerWithdrawalCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<RecordSellerWithdrawalCommand, SellerBalanceResponse>
 {
     public async Task<Result<SellerBalanceResponse>> Handle(
@@ -235,6 +238,12 @@ public sealed class RecordSellerWithdrawalCommandHandler(
             return Result.Failure<SellerBalanceResponse>(SellerErrors.WithdrawalInvalid);
         }
 
+        await auditService.RecordAsync(
+            AdminAuditActions.Sellers.WithdrawalRecorded,
+            entityType: "SellerProfile",
+            entityId: seller.Id,
+            details: $"amount={command.Amount}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(SellerMapper.MapBalance(seller));
@@ -294,15 +303,21 @@ public sealed class GetSellerBalanceQueryHandler(
 }
 
 public sealed class GetSellerBalancesQueryHandler(IMainRepository repository)
-    : IQueryHandler<GetSellerBalancesQuery, IReadOnlyCollection<SellerBalanceResponse>>
+    : IQueryHandler<GetSellerBalancesQuery, PagedResponse<SellerBalanceResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<SellerBalanceResponse>>> Handle(
+    public async Task<Result<PagedResponse<SellerBalanceResponse>>> Handle(
         GetSellerBalancesQuery request,
         CancellationToken cancellationToken)
     {
-        SellerBalanceResponse[] balances = await repository
+        PageRequest pageRequest = request.Page;
+        IQueryable<SellerProfile> query = repository
             .Query<SellerProfile>()
-            .OrderBy(seller => seller.ShopName)
+            .OrderBy(seller => seller.ShopName);
+
+        int totalCount = await query.CountAsync(cancellationToken);
+        SellerBalanceResponse[] balances = await query
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
             .Select(seller => new SellerBalanceResponse(
                 seller.Id,
                 seller.ShopName,
@@ -312,30 +327,41 @@ public sealed class GetSellerBalancesQueryHandler(IMainRepository repository)
                 seller.TotalEarned))
             .ToArrayAsync(cancellationToken);
 
-        return Result.Success<IReadOnlyCollection<SellerBalanceResponse>>(balances);
+        return Result.Success(new PagedResponse<SellerBalanceResponse>(
+            balances,
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 }
 
 public sealed class GetShopProductsQueryHandler(
     IMainRepository repository,
     ISellerPricingService sellerPricingService)
-    : IQueryHandler<GetShopProductsQuery, IReadOnlyCollection<SellerProductResponse>>
+    : IQueryHandler<GetShopProductsQuery, PagedResponse<SellerProductResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<SellerProductResponse>>> Handle(
+    public async Task<Result<PagedResponse<SellerProductResponse>>> Handle(
         GetShopProductsQuery request,
         CancellationToken cancellationToken)
     {
+        PageRequest pageRequest = request.Page;
         SellerProfile? seller = await repository
             .Query<SellerProfile>(x => x.Slug == request.Slug.Trim().ToLower())
             .FirstOrDefaultAsync(cancellationToken);
 
         if (seller is null)
         {
-            return Result.Failure<IReadOnlyCollection<SellerProductResponse>>(SellerErrors.SellerNotFound);
+            return Result.Failure<PagedResponse<SellerProductResponse>>(SellerErrors.SellerNotFound);
         }
 
-        SellerProduct[] products = await repository
+        IQueryable<SellerProduct> query = repository
             .Query<SellerProduct>(x => x.SellerId == seller.Id && x.IsActive)
+            .OrderBy(product => product.CreatedAtUtc);
+
+        int totalCount = await query.CountAsync(cancellationToken);
+        SellerProduct[] products = await query
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
             .ToArrayAsync(cancellationToken);
 
         var responses = new List<SellerProductResponse>(products.Length);
@@ -353,7 +379,11 @@ public sealed class GetShopProductsQueryHandler(
             }
         }
 
-        return Result.Success<IReadOnlyCollection<SellerProductResponse>>(responses);
+        return Result.Success(new PagedResponse<SellerProductResponse>(
+            responses,
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 }
 

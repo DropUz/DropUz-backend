@@ -1,3 +1,4 @@
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
@@ -69,9 +70,16 @@ public sealed class SellersEndpoints : IEndpoint
 
         app.MapGet("/api/shops/{slug}/products", async (
             string slug,
+            int? pageNumber,
+            int? pageSize,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new GetShopProductsQuery(slug), cancellationToken)).ToHttpResult())
+            (await sender.Send(
+                    new GetShopProductsQuery(
+                        slug,
+                        new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithTags("Seller Shops")
             .WithName("GetSellerShopProducts");
 
@@ -80,8 +88,15 @@ public sealed class SellersEndpoints : IEndpoint
             .WithTags("Admin Sellers")
             .RequireAdmin();
 
-        admin.MapGet("/balances", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetSellerBalancesQuery(), cancellationToken)).ToHttpResult())
+        admin.MapGet("/balances", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetSellerBalancesQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithName("GetSellerBalances");
 
         admin.MapPost("/{sellerId:guid}/withdrawals", async (

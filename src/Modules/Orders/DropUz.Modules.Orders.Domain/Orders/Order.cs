@@ -131,6 +131,19 @@ public sealed class Order : Entity
         }
 
         ChangeStatus(status, note, nowUtc);
+        if (status == OrderStatus.Delivered && SellerId.HasValue)
+        {
+            RaiseDomainEvent(new OrderDeliveredDomainEvent(
+                Id,
+                UserId,
+                SellerId.Value,
+                SellerProfitTotal,
+                nowUtc));
+        }
+        else if (status == OrderStatus.CargoPaymentExpired)
+        {
+            RaiseCargoPaymentExpiredDomainEvent(nowUtc);
+        }
 
         return true;
     }
@@ -142,7 +155,18 @@ public sealed class Order : Entity
             CargoPaymentDeadlineAt.Value < nowUtc)
         {
             ChangeStatus(OrderStatus.CargoPaymentExpired, "Cargo payment deadline expired.", nowUtc);
+            RaiseCargoPaymentExpiredDomainEvent(nowUtc);
         }
+    }
+
+    private void RaiseCargoPaymentExpiredDomainEvent(DateTime expiredAtUtc)
+    {
+        RaiseDomainEvent(new CargoPaymentExpiredDomainEvent(
+            Id,
+            UserId,
+            SellerId,
+            SellerProfitTotal,
+            expiredAtUtc));
     }
 
     private void ChangeStatus(OrderStatus status, string? note, DateTime nowUtc)

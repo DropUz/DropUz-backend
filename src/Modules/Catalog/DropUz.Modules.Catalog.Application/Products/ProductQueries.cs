@@ -1,10 +1,12 @@
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 
 namespace DropUz.Modules.Catalog.Application.Products;
 
 public sealed record GetCatalogProductsQuery(
     string? Search,
     Guid? CategoryId,
-    bool ApprovedOnly) : IQuery<IReadOnlyCollection<CatalogProductResponse>>;
+    bool ApprovedOnly,
+    PageRequest Page) : IQuery<PagedResponse<CatalogProductResponse>>;
 
 public sealed record GetCatalogProductQuery(Guid ProductId) : IQuery<CatalogProductResponse>;

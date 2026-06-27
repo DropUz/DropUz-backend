@@ -1,6 +1,9 @@
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
+using DropUz.Modules.Admin.Application.Audit;
+using DropUz.Modules.Admin.Application.Dashboard;
 using DropUz.Modules.Admin.Application.Settings;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
@@ -23,15 +26,42 @@ public sealed class AdminEndpoints : IEndpoint
             .WithName("GetSupportTelegramUrl");
 
         RouteGroupBuilder admin = app
+            .MapGroup("/api/admin")
+            .WithTags("Admin")
+            .RequireAdmin();
+
+        admin.MapGet("/dashboard", async (ISender sender, CancellationToken cancellationToken) =>
+            (await sender.Send(new GetAdminDashboardQuery(), cancellationToken)).ToHttpResult())
+            .WithName("GetAdminDashboard");
+
+        admin.MapGet("/audit-logs", async (
+            int? pageNumber,
+            int? pageSize,
+            string? action,
+            string? entityType,
+            Guid? entityId,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetAdminAuditLogsQuery(
+                        new PageRequest(pageNumber ?? 1, pageSize ?? 20),
+                        action,
+                        entityType,
+                        entityId),
+                    cancellationToken))
+                .ToHttpResult())
+            .WithName("GetAdminAuditLogs");
+
+        RouteGroupBuilder adminSettings = app
             .MapGroup("/api/admin/settings")
             .WithTags("Admin Settings")
             .RequireAdmin();
 
-        admin.MapGet("/support-telegram-url", async (ISender sender, CancellationToken cancellationToken) =>
+        adminSettings.MapGet("/support-telegram-url", async (ISender sender, CancellationToken cancellationToken) =>
             (await sender.Send(new GetSupportTelegramUrlQuery(), cancellationToken)).ToHttpResult())
             .WithName("GetAdminSupportTelegramUrl");
 
-        admin.MapPut("/support-telegram-url", async (
+        adminSettings.MapPut("/support-telegram-url", async (
             SetSupportTelegramUrlRequest request,
             ISender sender,
             CancellationToken cancellationToken) =>

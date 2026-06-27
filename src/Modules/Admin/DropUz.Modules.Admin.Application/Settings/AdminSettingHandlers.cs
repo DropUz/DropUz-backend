@@ -2,6 +2,7 @@ using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Admin.Domain.Settings;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,8 @@ namespace DropUz.Modules.Admin.Application.Settings;
 
 public sealed class SetSupportTelegramUrlCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<SetSupportTelegramUrlCommand, SupportTelegramUrlResponse>
 {
     public async Task<Result<SupportTelegramUrlResponse>> Handle(
@@ -26,6 +28,12 @@ public sealed class SetSupportTelegramUrlCommandHandler(
         {
             setting.SetValue(command.Url.Trim(), dateTimeProvider.UtcNow);
         }
+
+        await auditService.RecordAsync(
+            AdminAuditActions.Settings.SupportTelegramUrlUpdated,
+            entityType: "AdminSetting",
+            entityId: setting.Id,
+            cancellationToken: cancellationToken);
 
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 

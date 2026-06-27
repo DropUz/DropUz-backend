@@ -1,5 +1,6 @@
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Common.Presentation.Endpoints;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Admin.Infrastructure.Database;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,6 +17,7 @@ public static class AdminModule
             configuration.RegisterServicesFromAssembly(AdminApplication.Assembly));
 
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMainDbContextModelContributor, AdminModelContributor>());
+        services.AddScoped<IAdminAuditService, AdminAuditService>();
         services.AddEndpoints(AdminPresentation.Assembly);
 
         return services;

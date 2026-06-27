@@ -1,6 +1,7 @@
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
+using DropUz.Common.Application.Pagination;
 using DropUz.Modules.Catalog.Application;
 using DropUz.Modules.Catalog.Application.Categories;
 using DropUz.Modules.Catalog.Application.Products;
@@ -29,9 +30,17 @@ public sealed class CatalogEndpoints : IEndpoint
         catalog.MapGet("/products", async (
             string? search,
             Guid? categoryId,
+            int? pageNumber,
+            int? pageSize,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new GetCatalogProductsQuery(search, categoryId, ApprovedOnly: true), cancellationToken))
+            (await sender.Send(
+                    new GetCatalogProductsQuery(
+                        search,
+                        categoryId,
+                        ApprovedOnly: true,
+                        new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
                 .ToHttpResult())
             .WithName("GetCatalogProducts");
 
@@ -58,9 +67,17 @@ public sealed class CatalogEndpoints : IEndpoint
         admin.MapGet("/products", async (
             string? search,
             Guid? categoryId,
+            int? pageNumber,
+            int? pageSize,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new GetCatalogProductsQuery(search, categoryId, ApprovedOnly: false), cancellationToken))
+            (await sender.Send(
+                    new GetCatalogProductsQuery(
+                        search,
+                        categoryId,
+                        ApprovedOnly: false,
+                        new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
                 .ToHttpResult())
             .WithName("GetAdminCatalogProducts");
 

@@ -1,3 +1,4 @@
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
@@ -28,8 +29,15 @@ public sealed class NotificationsEndpoints : IEndpoint
             .RequireUser()
             .WithName("LinkTelegram");
 
-        notifications.MapGet("/", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetMyNotificationsQuery(), cancellationToken)).ToHttpResult())
+        notifications.MapGet("/", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetMyNotificationsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .RequireUser()
             .WithName("GetMyNotifications");
 
@@ -38,8 +46,15 @@ public sealed class NotificationsEndpoints : IEndpoint
             .WithTags("Admin Notifications")
             .RequireAdmin();
 
-        admin.MapGet("/", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetAdminNotificationsQuery(), cancellationToken)).ToHttpResult())
+        admin.MapGet("/", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetAdminNotificationsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithName("GetAdminNotifications");
 
         admin.MapPost("/{notificationId:guid}/retry", async (

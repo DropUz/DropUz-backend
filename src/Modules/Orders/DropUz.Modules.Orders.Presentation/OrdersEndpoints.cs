@@ -1,3 +1,4 @@
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Presentation.Authorization;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Common.Presentation.Results;
@@ -29,8 +30,15 @@ public sealed class OrdersEndpoints : IEndpoint
             .RequireUser()
             .WithName("CreateOrderFromCart");
 
-        orders.MapGet("/", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetMyOrdersQuery(), cancellationToken)).ToHttpResult())
+        orders.MapGet("/", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetMyOrdersQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .RequireUser()
             .WithName("GetMyOrders");
 
@@ -42,8 +50,15 @@ public sealed class OrdersEndpoints : IEndpoint
             .RequireUser()
             .WithName("GetOrder");
 
-        app.MapGet("/api/sellers/orders", async (ISender sender, CancellationToken cancellationToken) =>
-            (await sender.Send(new GetSellerOrdersQuery(), cancellationToken)).ToHttpResult())
+        app.MapGet("/api/sellers/orders", async (
+            int? pageNumber,
+            int? pageSize,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(
+                    new GetSellerOrdersQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithTags("Seller Orders")
             .RequireSeller()
             .WithName("GetSellerOrders");
@@ -55,9 +70,16 @@ public sealed class OrdersEndpoints : IEndpoint
 
         admin.MapGet("/", async (
             OrderStatus? status,
+            int? pageNumber,
+            int? pageSize,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new GetAdminOrdersQuery(status), cancellationToken)).ToHttpResult())
+            (await sender.Send(
+                    new GetAdminOrdersQuery(
+                        status,
+                        new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
+                    cancellationToken))
+                .ToHttpResult())
             .WithName("GetAdminOrders");
 
         admin.MapPut("/{orderId:guid}/status", async (

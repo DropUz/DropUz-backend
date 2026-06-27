@@ -1,7 +1,9 @@
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Domain.Categories;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
@@ -50,7 +52,8 @@ public sealed class CatalogPricingService(IMainRepository repository) : ICatalog
 
 public sealed class ImportProductCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<ImportProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -79,13 +82,15 @@ public sealed class ImportProductCommandHandler(
             return Result.Failure<CatalogProductResponse>(CatalogErrors.CategoryNotFound);
         }
 
-        CatalogProduct? product = await repository
+        CatalogProduct? existingProduct = await repository
             .Query<CatalogProduct>(x =>
                 x.SourcePlatform == command.SourcePlatform.Trim() &&
                 x.SourceProductId == command.SourceProductId.Trim())
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (product is null)
+        bool isNewProduct = existingProduct is null;
+        CatalogProduct product;
+        if (isNewProduct)
         {
             product = CatalogProduct.Import(
                 command.CategoryId,
@@ -104,6 +109,7 @@ public sealed class ImportProductCommandHandler(
         }
         else
         {
+            product = existingProduct!;
             product.UpdateImportData(
                 command.CategoryId,
                 command.Name,
@@ -115,6 +121,14 @@ public sealed class ImportProductCommandHandler(
                 dateTimeProvider.UtcNow);
         }
 
+        await auditService.RecordAsync(
+            isNewProduct
+                ? AdminAuditActions.Catalog.ProductImported
+                : AdminAuditActions.Catalog.ProductImportUpdated,
+            entityType: "CatalogProduct",
+            entityId: product.Id,
+            details: $"source={product.SourcePlatform}:{product.SourceProductId}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
@@ -123,7 +137,8 @@ public sealed class ImportProductCommandHandler(
 
 public sealed class ApproveProductCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<ApproveProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -137,6 +152,11 @@ public sealed class ApproveProductCommandHandler(
         }
 
         product.Approve(dateTimeProvider.UtcNow);
+        await auditService.RecordAsync(
+            AdminAuditActions.Catalog.ProductApproved,
+            entityType: "CatalogProduct",
+            entityId: product.Id,
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
@@ -145,7 +165,8 @@ public sealed class ApproveProductCommandHandler(
 
 public sealed class RejectProductCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<RejectProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -159,6 +180,11 @@ public sealed class RejectProductCommandHandler(
         }
 
         product.Reject(dateTimeProvider.UtcNow);
+        await auditService.RecordAsync(
+            AdminAuditActions.Catalog.ProductRejected,
+            entityType: "CatalogProduct",
+            entityId: product.Id,
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
@@ -167,7 +193,8 @@ public sealed class RejectProductCommandHandler(
 
 public sealed class SetGlobalDropUzMarkupCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<SetGlobalDropUzMarkupCommand>
 {
     public async Task<Result> Handle(
@@ -190,6 +217,12 @@ public sealed class SetGlobalDropUzMarkupCommandHandler(
         }
 
         settings.SetGlobalMarkup(command.Markup.ToMarkup(), dateTimeProvider.UtcNow);
+        await auditService.RecordAsync(
+            AdminAuditActions.Catalog.GlobalMarkupUpdated,
+            entityType: "CatalogPricingSettings",
+            entityId: settings.Id,
+            details: $"markup={command.Markup.Type}:{command.Markup.Value}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success();
@@ -198,7 +231,8 @@ public sealed class SetGlobalDropUzMarkupCommandHandler(
 
 public sealed class SetProductDropUzMarkupCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<SetProductDropUzMarkupCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -217,6 +251,12 @@ public sealed class SetProductDropUzMarkupCommandHandler(
         }
 
         product.SetMarkup(command.Markup?.ToMarkup(), dateTimeProvider.UtcNow);
+        await auditService.RecordAsync(
+            AdminAuditActions.Catalog.ProductMarkupUpdated,
+            entityType: "CatalogProduct",
+            entityId: product.Id,
+            details: command.Markup is null ? "markup=default" : $"markup={command.Markup.Type}:{command.Markup.Value}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
@@ -224,12 +264,13 @@ public sealed class SetProductDropUzMarkupCommandHandler(
 }
 
 public sealed class GetCatalogProductsQueryHandler(IMainRepository repository)
-    : IQueryHandler<GetCatalogProductsQuery, IReadOnlyCollection<CatalogProductResponse>>
+    : IQueryHandler<GetCatalogProductsQuery, PagedResponse<CatalogProductResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<CatalogProductResponse>>> Handle(
+    public async Task<Result<PagedResponse<CatalogProductResponse>>> Handle(
         GetCatalogProductsQuery request,
         CancellationToken cancellationToken)
     {
+        PageRequest pageRequest = request.Page;
         IQueryable<CatalogProduct> query = repository.Query<CatalogProduct>();
 
         if (request.ApprovedOnly)
@@ -248,9 +289,11 @@ public sealed class GetCatalogProductsQueryHandler(IMainRepository repository)
             query = query.Where(product => product.Name.ToLower().Contains(search));
         }
 
+        int totalCount = await query.CountAsync(cancellationToken);
         CatalogProduct[] products = await query
             .OrderBy(product => product.Name)
-            .Take(100)
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
             .ToArrayAsync(cancellationToken);
 
         var responses = new List<CatalogProductResponse>(products.Length);
@@ -259,7 +302,11 @@ public sealed class GetCatalogProductsQueryHandler(IMainRepository repository)
             responses.Add(await ProductMapper.MapAsync(repository, product, cancellationToken));
         }
 
-        return Result.Success<IReadOnlyCollection<CatalogProductResponse>>(responses);
+        return Result.Success(new PagedResponse<CatalogProductResponse>(
+            responses,
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 }
 

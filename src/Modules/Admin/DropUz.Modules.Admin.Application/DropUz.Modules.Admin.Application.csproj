@@ -3,6 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\DropUz.Common.Application\DropUz.Common.Application.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Admin.Domain\DropUz.Modules.Admin.Domain.csproj" />
+    <ProjectReference Include="..\..\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\..\Notifications\DropUz.Modules.Notifications.Domain\DropUz.Modules.Notifications.Domain.csproj" />
+    <ProjectReference Include="..\..\Orders\DropUz.Modules.Orders.Domain\DropUz.Modules.Orders.Domain.csproj" />
+    <ProjectReference Include="..\..\Payments\DropUz.Modules.Payments.Domain\DropUz.Modules.Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\Sellers\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

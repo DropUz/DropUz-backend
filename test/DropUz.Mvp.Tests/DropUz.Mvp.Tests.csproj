@@ -1,10 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Admin\DropUz.Modules.Admin.Application\DropUz.Modules.Admin.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Admin\DropUz.Modules.Admin.Domain\DropUz.Modules.Admin.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sellers\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Domain\DropUz.Modules.Orders.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Application\DropUz.Modules.Orders.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Cargo\DropUz.Modules.Cargo.Infrastructure\DropUz.Modules.Cargo.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\DropUz.Modules.Notifications.Application\DropUz.Modules.Notifications.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\DropUz.Modules.Payments.Application\DropUz.Modules.Payments.Application.csproj" />
   </ItemGroup>
 

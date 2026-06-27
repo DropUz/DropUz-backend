@@ -1,5 +1,8 @@
+using DropUz.Common.Application.Messaging;
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Common.Presentation.Endpoints;
+using DropUz.Modules.Orders.Application.Orders;
+using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Orders.Infrastructure.Database;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,6 +19,12 @@ public static class OrdersModule
             configuration.RegisterServicesFromAssembly(OrdersApplication.Assembly));
 
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMainDbContextModelContributor, OrdersModelContributor>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            IDomainEventHandler<OrderDeliveredDomainEvent>,
+            OrderDeliveredDomainEventHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            IDomainEventHandler<CargoPaymentExpiredDomainEvent>,
+            CargoPaymentExpiredDomainEventHandler>());
         services.AddEndpoints(OrdersPresentation.Assembly);
 
         return services;

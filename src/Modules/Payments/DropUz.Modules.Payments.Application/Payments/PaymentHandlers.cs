@@ -2,12 +2,10 @@ using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Payments.Domain.Payments;
-using DropUz.Modules.Sellers.Domain.Sellers;
 using Microsoft.EntityFrameworkCore;
 
 namespace DropUz.Modules.Payments.Application.Payments;
@@ -80,8 +78,7 @@ public sealed class StartPaymentCommandHandler(
 public sealed class ConfirmPaymentCommandHandler(
     IMainRepository repository,
     ICurrentUser currentUser,
-    IDateTimeProvider dateTimeProvider,
-    INotificationService notificationService)
+    IDateTimeProvider dateTimeProvider)
     : ICommandHandler<ConfirmPaymentCommand, PaymentResponse>
 {
     public async Task<Result<PaymentResponse>> Handle(
@@ -125,33 +122,6 @@ public sealed class ConfirmPaymentCommandHandler(
         }
 
         payment.MarkPaid(command.ProviderTransactionId, nowUtc);
-
-        if (payment.Type == PaymentType.ProductPayment)
-        {
-            order.MarkProductPaid(nowUtc);
-            if (order.SellerId.HasValue)
-            {
-                SellerProfile? seller = await repository
-                    .Query<SellerProfile>(x => x.Id == order.SellerId.Value)
-                    .Include(x => x.BalanceTransactions)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                seller?.RecordProductPayment(order.Id, order.SellerProfitTotal, nowUtc);
-            }
-        }
-        else
-        {
-            order.MarkCargoPaid(nowUtc);
-        }
-
-        await notificationService.EnqueueAsync(
-            order.UserId,
-            order.Id,
-            NotificationType.PaymentReceived,
-            "Payment received",
-            $"{payment.Type} payment for order {order.Id} was received.",
-            cancellationToken);
-
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(PaymentMapper.Map(payment));
@@ -177,42 +147,37 @@ public sealed class ConfirmPaymentCommandHandler(
 public sealed class GetMyPaymentsQueryHandler(
     IMainRepository repository,
     ICurrentUser currentUser)
-    : IQueryHandler<GetMyPaymentsQuery, IReadOnlyCollection<PaymentResponse>>
+    : IQueryHandler<GetMyPaymentsQuery, PagedResponse<PaymentResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<PaymentResponse>>> Handle(
+    public async Task<Result<PagedResponse<PaymentResponse>>> Handle(
         GetMyPaymentsQuery request,
         CancellationToken cancellationToken)
     {
         if (currentUser.UserId is null)
         {
-            return Result.Failure<IReadOnlyCollection<PaymentResponse>>(PaymentErrors.UserNotAuthenticated);
+            return Result.Failure<PagedResponse<PaymentResponse>>(PaymentErrors.UserNotAuthenticated);
         }
 
-        Payment[] payments = await repository
+        IQueryable<Payment> query = repository
             .Query<Payment>(payment => payment.UserId == currentUser.UserId.Value)
-            .OrderByDescending(payment => payment.CreatedAtUtc)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(payment => payment.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<PaymentResponse>>(
-            payments.Select(PaymentMapper.Map).ToArray());
+        return await PaymentMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
 public sealed class GetAdminPaymentsQueryHandler(IMainRepository repository)
-    : IQueryHandler<GetAdminPaymentsQuery, IReadOnlyCollection<PaymentResponse>>
+    : IQueryHandler<GetAdminPaymentsQuery, PagedResponse<PaymentResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<PaymentResponse>>> Handle(
+    public async Task<Result<PagedResponse<PaymentResponse>>> Handle(
         GetAdminPaymentsQuery request,
         CancellationToken cancellationToken)
     {
-        Payment[] payments = await repository
+        IQueryable<Payment> query = repository
             .Query<Payment>()
-            .OrderByDescending(payment => payment.CreatedAtUtc)
-            .Take(200)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(payment => payment.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<PaymentResponse>>(
-            payments.Select(PaymentMapper.Map).ToArray());
+        return await PaymentMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
@@ -232,5 +197,23 @@ internal static class PaymentMapper
             payment.Status,
             payment.CreatedAtUtc,
             payment.PaidAtUtc);
+    }
+
+    internal static async Task<Result<PagedResponse<PaymentResponse>>> ToPagedResponseAsync(
+        IQueryable<Payment> query,
+        PageRequest pageRequest,
+        CancellationToken cancellationToken)
+    {
+        int totalCount = await query.CountAsync(cancellationToken);
+        Payment[] payments = await query
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
+            .ToArrayAsync(cancellationToken);
+
+        return Result.Success(new PagedResponse<PaymentResponse>(
+            payments.Select(Map).ToArray(),
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 }

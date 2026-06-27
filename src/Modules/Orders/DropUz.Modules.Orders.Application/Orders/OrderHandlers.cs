@@ -2,12 +2,17 @@ using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Cart.Application.Carts;
 using DropUz.Modules.Cart.Domain.Carts;
+using DropUz.Modules.Cargo.Domain.Cargo;
 using DropUz.Modules.Catalog.Application.Products;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
+using DropUz.Modules.Notifications.Application.Notifications;
+using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Sellers.Application.Sellers;
 using DropUz.Modules.Sellers.Domain.Sellers;
@@ -148,7 +153,9 @@ public sealed class CreateOrderFromCartCommandHandler(
 
 public sealed class AdminSetCargoPriceCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    INotificationService notificationService,
+    IAdminAuditService auditService)
     : ICommandHandler<AdminSetCargoPriceCommand, OrderResponse>
 {
     public async Task<Result<OrderResponse>> Handle(
@@ -166,20 +173,57 @@ public sealed class AdminSetCargoPriceCommandHandler(
             return Result.Failure<OrderResponse>(OrderErrors.OrderNotFound);
         }
 
-        if (!order.SetCargoPrice(command.CargoPrice, command.DeadlineDays ?? 7, dateTimeProvider.UtcNow))
+        DateTime nowUtc = dateTimeProvider.UtcNow;
+        int deadlineDays = command.DeadlineDays ?? await GetCargoDeadlineDaysAsync(repository, cancellationToken);
+
+        if (!order.SetCargoPrice(command.CargoPrice, deadlineDays, nowUtc))
         {
             return Result.Failure<OrderResponse>(OrderErrors.InvalidStatusTransition);
         }
 
+        var cargoPriceRecord = CargoPriceRecord.Create(
+            order.Id,
+            command.CargoPrice,
+            order.CargoPaymentDeadlineAt ?? nowUtc.AddDays(deadlineDays),
+            nowUtc);
+
+        await repository.AddAsync(cargoPriceRecord);
+        await notificationService.EnqueueAsync(
+            order.UserId,
+            order.Id,
+            NotificationType.CargoPriceAdded,
+            "Cargo price added",
+            $"Cargo price for order {order.Id} is {command.CargoPrice}.",
+            cancellationToken);
+
+        await auditService.RecordAsync(
+            AdminAuditActions.Orders.CargoPriceSet,
+            entityType: "Order",
+            entityId: order.Id,
+            details: $"cargoPrice={command.CargoPrice};deadlineDays={deadlineDays}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(OrderMapper.Map(order));
+    }
+
+    private static async Task<int> GetCargoDeadlineDaysAsync(
+        IMainRepository repository,
+        CancellationToken cancellationToken)
+    {
+        CargoSettings? settings = await repository
+            .Query<CargoSettings>(settings => settings.Id == CargoSettings.DefaultId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return settings?.PaymentDeadlineDays ?? 7;
     }
 }
 
 public sealed class AdminUpdateOrderStatusCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService,
+    INotificationService notificationService)
     : ICommandHandler<AdminUpdateOrderStatusCommand, OrderResponse>
 {
     public async Task<Result<OrderResponse>> Handle(
@@ -200,22 +244,37 @@ public sealed class AdminUpdateOrderStatusCommandHandler(
             return Result.Failure<OrderResponse>(OrderErrors.InvalidStatusTransition);
         }
 
-        if (statusChanged && order.SellerId.HasValue)
+        if (statusChanged &&
+            order.SellerId.HasValue &&
+            command.Status is OrderStatus.Cancelled or OrderStatus.Refunded)
         {
             SellerProfile? seller = await SellerBalanceLoader.GetSellerWithBalanceTransactionsAsync(
                 repository,
                 order.SellerId.Value,
                 cancellationToken);
 
-            if (seller is not null && command.Status == OrderStatus.Delivered)
-            {
-                seller.ReleaseDeliveredProfit(order.Id, order.SellerProfitTotal, dateTimeProvider.UtcNow);
-            }
-            else if (seller is not null &&
-                     command.Status is OrderStatus.Cancelled or OrderStatus.Refunded or OrderStatus.CargoPaymentExpired)
+            if (seller is not null)
             {
                 seller.ReversePendingProfit(order.Id, order.SellerProfitTotal, "Order is not payable to seller.", dateTimeProvider.UtcNow);
             }
+        }
+
+        if (statusChanged)
+        {
+            await auditService.RecordAsync(
+                AdminAuditActions.Orders.StatusUpdated,
+                entityType: "Order",
+                entityId: order.Id,
+                details: $"from={previousStatus};to={order.Status};note={command.Note}",
+                cancellationToken: cancellationToken);
+
+            await notificationService.EnqueueAsync(
+                order.UserId,
+                order.Id,
+                NotificationType.OrderStatusChanged,
+                "Order status updated",
+                $"Order {order.OrderNumber} status changed to {order.Status}.",
+                cancellationToken);
         }
 
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
@@ -268,24 +327,22 @@ public sealed class ExpireCargoPaymentsCommandHandler(
 public sealed class GetMyOrdersQueryHandler(
     IMainRepository repository,
     ICurrentUser currentUser)
-    : IQueryHandler<GetMyOrdersQuery, IReadOnlyCollection<OrderResponse>>
+    : IQueryHandler<GetMyOrdersQuery, PagedResponse<OrderResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<OrderResponse>>> Handle(
+    public async Task<Result<PagedResponse<OrderResponse>>> Handle(
         GetMyOrdersQuery request,
         CancellationToken cancellationToken)
     {
         if (currentUser.UserId is null)
         {
-            return Result.Failure<IReadOnlyCollection<OrderResponse>>(OrderErrors.UserNotAuthenticated);
+            return Result.Failure<PagedResponse<OrderResponse>>(OrderErrors.UserNotAuthenticated);
         }
 
-        Order[] orders = await OrderMapper.QueryOrders(repository)
+        IQueryable<Order> query = OrderMapper.QueryOrders(repository)
             .Where(order => order.UserId == currentUser.UserId.Value)
-            .OrderByDescending(order => order.CreatedAtUtc)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(order => order.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<OrderResponse>>(
-            orders.Select(OrderMapper.Map).ToArray());
+        return await OrderMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
@@ -311,15 +368,15 @@ public sealed class GetOrderQueryHandler(
 public sealed class GetSellerOrdersQueryHandler(
     IMainRepository repository,
     ICurrentUser currentUser)
-    : IQueryHandler<GetSellerOrdersQuery, IReadOnlyCollection<OrderResponse>>
+    : IQueryHandler<GetSellerOrdersQuery, PagedResponse<OrderResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<OrderResponse>>> Handle(
+    public async Task<Result<PagedResponse<OrderResponse>>> Handle(
         GetSellerOrdersQuery request,
         CancellationToken cancellationToken)
     {
         if (currentUser.UserId is null)
         {
-            return Result.Failure<IReadOnlyCollection<OrderResponse>>(OrderErrors.UserNotAuthenticated);
+            return Result.Failure<PagedResponse<OrderResponse>>(OrderErrors.UserNotAuthenticated);
         }
 
         SellerProfile? seller = await repository
@@ -328,23 +385,25 @@ public sealed class GetSellerOrdersQueryHandler(
 
         if (seller is null)
         {
-            return Result.Success<IReadOnlyCollection<OrderResponse>>([]);
+            return Result.Success(new PagedResponse<OrderResponse>(
+                [],
+                request.Page.NormalizedPageNumber,
+                request.Page.NormalizedPageSize,
+                TotalCount: 0));
         }
 
-        Order[] orders = await OrderMapper.QueryOrders(repository)
+        IQueryable<Order> query = OrderMapper.QueryOrders(repository)
             .Where(order => order.SellerId == seller.Id)
-            .OrderByDescending(order => order.CreatedAtUtc)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(order => order.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<OrderResponse>>(
-            orders.Select(OrderMapper.Map).ToArray());
+        return await OrderMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
 public sealed class GetAdminOrdersQueryHandler(IMainRepository repository)
-    : IQueryHandler<GetAdminOrdersQuery, IReadOnlyCollection<OrderResponse>>
+    : IQueryHandler<GetAdminOrdersQuery, PagedResponse<OrderResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<OrderResponse>>> Handle(
+    public async Task<Result<PagedResponse<OrderResponse>>> Handle(
         GetAdminOrdersQuery request,
         CancellationToken cancellationToken)
     {
@@ -354,12 +413,9 @@ public sealed class GetAdminOrdersQueryHandler(IMainRepository repository)
             query = query.Where(order => order.Status == request.Status.Value);
         }
 
-        Order[] orders = await query
-            .OrderByDescending(order => order.CreatedAtUtc)
-            .ToArrayAsync(cancellationToken);
+        query = query.OrderByDescending(order => order.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<OrderResponse>>(
-            orders.Select(OrderMapper.Map).ToArray());
+        return await OrderMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
@@ -380,6 +436,24 @@ internal static class OrderMapper
     {
         return QueryOrders(repository)
             .FirstOrDefaultAsync(order => order.Id == orderId, cancellationToken);
+    }
+
+    internal static async Task<Result<PagedResponse<OrderResponse>>> ToPagedResponseAsync(
+        IQueryable<Order> query,
+        PageRequest pageRequest,
+        CancellationToken cancellationToken)
+    {
+        int totalCount = await query.CountAsync(cancellationToken);
+        Order[] orders = await query
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
+            .ToArrayAsync(cancellationToken);
+
+        return Result.Success(new PagedResponse<OrderResponse>(
+            orders.Select(Map).ToArray(),
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 
     internal static OrderResponse Map(Order order)

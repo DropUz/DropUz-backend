@@ -2,6 +2,7 @@ using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Domain.Categories;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,8 @@ namespace DropUz.Modules.Catalog.Application.Categories;
 
 public sealed class CreateCategoryCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<CreateCategoryCommand, CategoryResponse>
 {
     public async Task<Result<CategoryResponse>> Handle(
@@ -32,6 +34,12 @@ public sealed class CreateCategoryCommandHandler(
         if (existing is not null)
         {
             existing.Rename(command.Name, slug);
+            await auditService.RecordAsync(
+                AdminAuditActions.Catalog.CategoryUpserted,
+                entityType: "Category",
+                entityId: existing.Id,
+                details: $"slug={slug}",
+                cancellationToken: cancellationToken);
             await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result.Success(Map(existing));
@@ -39,6 +47,12 @@ public sealed class CreateCategoryCommandHandler(
 
         Category category = Category.Create(command.Name, slug, dateTimeProvider.UtcNow);
         await repository.AddAsync(category);
+        await auditService.RecordAsync(
+            AdminAuditActions.Catalog.CategoryUpserted,
+            entityType: "Category",
+            entityId: category.Id,
+            details: $"slug={slug}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(Map(category));

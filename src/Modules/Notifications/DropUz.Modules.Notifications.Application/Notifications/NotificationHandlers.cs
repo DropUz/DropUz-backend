@@ -2,7 +2,9 @@ using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
+using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Notifications.Domain.Notifications;
 using Microsoft.EntityFrameworkCore;
 
@@ -86,7 +88,9 @@ public sealed class LinkTelegramCommandHandler(
     }
 }
 
-public sealed class RetryNotificationCommandHandler(IMainRepository repository)
+public sealed class RetryNotificationCommandHandler(
+    IMainRepository repository,
+    IAdminAuditService auditService)
     : ICommandHandler<RetryNotificationCommand, NotificationResponse>
 {
     public async Task<Result<NotificationResponse>> Handle(
@@ -100,6 +104,12 @@ public sealed class RetryNotificationCommandHandler(IMainRepository repository)
         }
 
         message.Retry();
+        await auditService.RecordAsync(
+            AdminAuditActions.Notifications.RetryRequested,
+            entityType: "NotificationMessage",
+            entityId: message.Id,
+            details: $"status={message.Status}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(NotificationMapper.Map(message));
@@ -109,42 +119,37 @@ public sealed class RetryNotificationCommandHandler(IMainRepository repository)
 public sealed class GetMyNotificationsQueryHandler(
     IMainRepository repository,
     ICurrentUser currentUser)
-    : IQueryHandler<GetMyNotificationsQuery, IReadOnlyCollection<NotificationResponse>>
+    : IQueryHandler<GetMyNotificationsQuery, PagedResponse<NotificationResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<NotificationResponse>>> Handle(
+    public async Task<Result<PagedResponse<NotificationResponse>>> Handle(
         GetMyNotificationsQuery request,
         CancellationToken cancellationToken)
     {
         if (currentUser.UserId is null)
         {
-            return Result.Failure<IReadOnlyCollection<NotificationResponse>>(NotificationErrors.UserNotAuthenticated);
+            return Result.Failure<PagedResponse<NotificationResponse>>(NotificationErrors.UserNotAuthenticated);
         }
 
-        NotificationMessage[] notifications = await repository
+        IQueryable<NotificationMessage> query = repository
             .Query<NotificationMessage>(x => x.UserId == currentUser.UserId.Value)
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(x => x.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<NotificationResponse>>(
-            notifications.Select(NotificationMapper.Map).ToArray());
+        return await NotificationMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
 public sealed class GetAdminNotificationsQueryHandler(IMainRepository repository)
-    : IQueryHandler<GetAdminNotificationsQuery, IReadOnlyCollection<NotificationResponse>>
+    : IQueryHandler<GetAdminNotificationsQuery, PagedResponse<NotificationResponse>>
 {
-    public async Task<Result<IReadOnlyCollection<NotificationResponse>>> Handle(
+    public async Task<Result<PagedResponse<NotificationResponse>>> Handle(
         GetAdminNotificationsQuery request,
         CancellationToken cancellationToken)
     {
-        NotificationMessage[] notifications = await repository
+        IQueryable<NotificationMessage> query = repository
             .Query<NotificationMessage>()
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(200)
-            .ToArrayAsync(cancellationToken);
+            .OrderByDescending(x => x.CreatedAtUtc);
 
-        return Result.Success<IReadOnlyCollection<NotificationResponse>>(
-            notifications.Select(NotificationMapper.Map).ToArray());
+        return await NotificationMapper.ToPagedResponseAsync(query, request.Page, cancellationToken);
     }
 }
 
@@ -165,5 +170,23 @@ internal static class NotificationMapper
             message.CreatedAtUtc,
             message.SentAtUtc,
             message.FailureReason);
+    }
+
+    internal static async Task<Result<PagedResponse<NotificationResponse>>> ToPagedResponseAsync(
+        IQueryable<NotificationMessage> query,
+        PageRequest pageRequest,
+        CancellationToken cancellationToken)
+    {
+        int totalCount = await query.CountAsync(cancellationToken);
+        NotificationMessage[] notifications = await query
+            .Skip(pageRequest.Skip)
+            .Take(pageRequest.NormalizedPageSize)
+            .ToArrayAsync(cancellationToken);
+
+        return Result.Success(new PagedResponse<NotificationResponse>(
+            notifications.Select(Map).ToArray(),
+            pageRequest.NormalizedPageNumber,
+            pageRequest.NormalizedPageSize,
+            totalCount));
     }
 }

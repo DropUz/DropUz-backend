@@ -1,5 +1,8 @@
+using DropUz.Common.Application.Messaging;
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Common.Presentation.Endpoints;
+using DropUz.Modules.Payments.Application.Payments;
+using DropUz.Modules.Payments.Domain.Payments;
 using DropUz.Modules.Payments.Infrastructure.Database;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,6 +19,12 @@ public static class PaymentsModule
             configuration.RegisterServicesFromAssembly(PaymentsApplication.Assembly));
 
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMainDbContextModelContributor, PaymentsModelContributor>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            IDomainEventHandler<ProductPaymentCompletedDomainEvent>,
+            ProductPaymentCompletedDomainEventHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            IDomainEventHandler<CargoPaymentCompletedDomainEvent>,
+            CargoPaymentCompletedDomainEventHandler>());
         services.AddEndpoints(PaymentsPresentation.Assembly);
 
         return services;

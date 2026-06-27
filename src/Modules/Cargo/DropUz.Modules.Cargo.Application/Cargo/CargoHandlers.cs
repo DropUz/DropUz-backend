@@ -2,6 +2,7 @@ using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Domain;
+using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Cargo.Domain.Cargo;
 using DropUz.Modules.Notifications.Application.Notifications;
 using DropUz.Modules.Notifications.Domain.Notifications;
@@ -12,7 +13,8 @@ namespace DropUz.Modules.Cargo.Application.Cargo;
 
 public sealed class SetCargoDeadlineSettingsCommandHandler(
     IMainRepository repository,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IAdminAuditService auditService)
     : ICommandHandler<SetCargoDeadlineSettingsCommand, CargoSettingsResponse>
 {
     public async Task<Result<CargoSettingsResponse>> Handle(
@@ -21,6 +23,12 @@ public sealed class SetCargoDeadlineSettingsCommandHandler(
     {
         CargoSettings settings = await GetOrCreateSettingsAsync(repository, dateTimeProvider.UtcNow, cancellationToken);
         settings.SetDeadlineDays(command.DeadlineDays, dateTimeProvider.UtcNow);
+        await auditService.RecordAsync(
+            AdminAuditActions.Cargo.DeadlineSettingsUpdated,
+            entityType: "CargoSettings",
+            entityId: settings.Id,
+            details: $"deadlineDays={command.DeadlineDays}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(Map(settings));
@@ -55,7 +63,8 @@ public sealed class SetCargoDeadlineSettingsCommandHandler(
 public sealed class RecordCargoPriceCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    INotificationService notificationService)
+    INotificationService notificationService,
+    IAdminAuditService auditService)
     : ICommandHandler<RecordCargoPriceCommand, CargoPriceResponse>
 {
     public async Task<Result<CargoPriceResponse>> Handle(
@@ -99,6 +108,12 @@ public sealed class RecordCargoPriceCommandHandler(
             $"Cargo price for order {order.Id} is {command.CargoPrice}.",
             cancellationToken);
 
+        await auditService.RecordAsync(
+            AdminAuditActions.Cargo.PriceRecorded,
+            entityType: "Order",
+            entityId: order.Id,
+            details: $"cargoPrice={command.CargoPrice};deadlineDays={deadlineDays}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(Map(record));
@@ -113,7 +128,7 @@ public sealed class RecordCargoPriceCommandHandler(
 public sealed class ExpireCargoPaymentsCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    INotificationService notificationService)
+    IAdminAuditService auditService)
     : ICommandHandler<ExpireCargoPaymentsCommand, int>
 {
     public async Task<Result<int>> Handle(
@@ -130,15 +145,13 @@ public sealed class ExpireCargoPaymentsCommandHandler(
         foreach (Order order in orders)
         {
             order.ExpireCargoPayment(dateTimeProvider.UtcNow);
-            await notificationService.EnqueueAsync(
-                order.UserId,
-                order.Id,
-                NotificationType.CargoExpired,
-                "Cargo payment expired",
-                $"Cargo payment deadline for order {order.Id} expired.",
-                cancellationToken);
         }
 
+        await auditService.RecordAsync(
+            AdminAuditActions.Cargo.PaymentsExpired,
+            entityType: "CargoPayment",
+            details: $"expiredCount={orders.Length}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(orders.Length);
@@ -147,7 +160,8 @@ public sealed class ExpireCargoPaymentsCommandHandler(
 
 public sealed class SendCargoPaymentRemindersCommandHandler(
     IMainRepository repository,
-    INotificationService notificationService)
+    INotificationService notificationService,
+    IAdminAuditService auditService)
     : ICommandHandler<SendCargoPaymentRemindersCommand, int>
 {
     public async Task<Result<int>> Handle(
@@ -166,9 +180,14 @@ public sealed class SendCargoPaymentRemindersCommandHandler(
                 NotificationType.CargoPaymentReminder,
                 "Cargo payment reminder",
                 $"Cargo payment for order {order.Id} is still pending.",
-                cancellationToken);
+            cancellationToken);
         }
 
+        await auditService.RecordAsync(
+            AdminAuditActions.Cargo.PaymentRemindersSent,
+            entityType: "CargoPayment",
+            details: $"reminderCount={orders.Length}",
+            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(orders.Length);

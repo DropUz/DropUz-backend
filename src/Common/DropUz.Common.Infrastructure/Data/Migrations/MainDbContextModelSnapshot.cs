@@ -36,11 +36,19 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<DateTime?>("LastAttemptedOnUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("OccurredOnUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ProcessedOnUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RetryCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -50,6 +58,8 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProcessedOnUtc");
+
+                    b.HasIndex("ProcessedOnUtc", "OccurredOnUtc");
 
                     b.ToTable("inbox_messages", "common");
                 });
@@ -68,11 +78,19 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<DateTime?>("LastAttemptedOnUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("OccurredOnUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ProcessedOnUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RetryCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -83,7 +101,49 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProcessedOnUtc");
 
+                    b.HasIndex("ProcessedOnUtc", "OccurredOnUtc");
+
                     b.ToTable("outbox_messages", "common");
+                });
+
+            modelBuilder.Entity("DropUz.Modules.Admin.Domain.Audit.AdminAuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("AdminUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Action");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("EntityType", "EntityId");
+
+                    b.ToTable("audit_logs", "admin");
                 });
 
             modelBuilder.Entity("DropUz.Modules.Admin.Domain.Settings.AdminSetting", b =>

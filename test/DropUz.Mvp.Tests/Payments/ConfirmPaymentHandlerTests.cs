@@ -4,8 +4,6 @@ using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Domain;
 using DropUz.Modules.Catalog.Domain.Pricing;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Payments.Application;
 using DropUz.Modules.Payments.Application.Payments;
@@ -60,8 +58,7 @@ public sealed class ConfirmPaymentHandlerTests
         return new ConfirmPaymentCommandHandler(
             repository,
             new TestCurrentUser(currentUserId),
-            new TestDateTimeProvider(new DateTime(2026, 06, 23, 10, 0, 0, DateTimeKind.Utc)),
-            new NoOpNotificationService());
+            new TestDateTimeProvider(new DateTime(2026, 06, 23, 10, 0, 0, DateTimeKind.Utc)));
     }
 
     private static Payment CreateProductPayment(Guid ownerId, out Order order)
@@ -117,20 +114,6 @@ public sealed class ConfirmPaymentHandlerTests
         public DateTime UtcNow => utcNow;
 
         public DateTimeOffset OffsetUtcNow => new(utcNow);
-    }
-
-    private sealed class NoOpNotificationService : INotificationService
-    {
-        public Task EnqueueAsync(
-            Guid userId,
-            Guid? orderId,
-            NotificationType type,
-            string subject,
-            string body,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
     }
 
     private sealed class InMemoryUnitOfWork : IUnitOfWork
