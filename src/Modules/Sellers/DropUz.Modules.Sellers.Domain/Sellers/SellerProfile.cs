@@ -79,6 +79,16 @@ public sealed class SellerProfile : Entity
             sellerProfit,
             "Product payment received.",
             nowUtc));
+
+        RaiseDomainEvent(new SellerProfitPendingCreatedDomainEvent(
+            Id,
+            UserId,
+            orderId,
+            sellerProfit,
+            nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
     }
 
     public void ReleaseDeliveredProfit(Guid orderId, decimal sellerProfit, DateTime nowUtc)
@@ -101,6 +111,16 @@ public sealed class SellerProfile : Entity
             sellerProfit,
             "Order delivered.",
             nowUtc));
+
+        RaiseDomainEvent(new SellerProfitAvailableDomainEvent(
+            Id,
+            UserId,
+            orderId,
+            sellerProfit,
+            nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
     }
 
     public void ReversePendingProfit(Guid orderId, decimal sellerProfit, string note, DateTime nowUtc)
@@ -125,7 +145,11 @@ public sealed class SellerProfile : Entity
             nowUtc));
     }
 
-    public bool TryWithdraw(decimal amount, string? note, DateTime nowUtc)
+    public bool TryWithdraw(
+        decimal amount,
+        string? note,
+        DateTime nowUtc,
+        Guid? actorUserId = null)
     {
         if (amount <= 0m || amount > AvailableBalance)
         {
@@ -143,6 +167,16 @@ public sealed class SellerProfile : Entity
             amount,
             note,
             nowUtc));
+
+        RaiseDomainEvent(new SellerWithdrawalRecordedDomainEvent(
+            Id,
+            amount,
+            note,
+            actorUserId,
+            nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
 
         return true;
     }

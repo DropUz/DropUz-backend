@@ -15,11 +15,11 @@ public sealed class PaymentsEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder payments = app
-            .MapGroup("/api/payments")
-            .WithTags("Payments");
+        RouteGroupBuilder payments = app.MapGroup("/api/payments");
 
         payments.MapGet("/status", () => Results.Ok(new { module = "payments", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetPaymentsStatus");
 
         payments.MapGet("/", async (
@@ -31,24 +31,49 @@ public sealed class PaymentsEndpoints : IEndpoint
                     new GetMyPaymentsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
                     cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Payments")
             .RequireUser()
             .WithName("GetMyPayments");
 
         payments.MapPost("/product", async (
             StartPaymentRequest request,
+            HttpRequest httpRequest,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new StartPaymentCommand(request.OrderId, PaymentType.ProductPayment, request.Method), cancellationToken))
-                .ToHttpResult())
+        {
+            string? idempotencyKey = httpRequest.Headers["Idempotency-Key"].FirstOrDefault()
+                ?? request.IdempotencyKey;
+            return (await sender.Send(
+                    new StartPaymentCommand(
+                        request.OrderId,
+                        PaymentType.ProductPayment,
+                        request.Method,
+                        idempotencyKey),
+                    cancellationToken))
+                .ToHttpResult();
+        })
+            .WithTags("User: Payments")
             .RequireUser()
             .WithName("StartProductPayment");
 
         payments.MapPost("/cargo", async (
             StartPaymentRequest request,
+            HttpRequest httpRequest,
             ISender sender,
             CancellationToken cancellationToken) =>
-            (await sender.Send(new StartPaymentCommand(request.OrderId, PaymentType.CargoPayment, request.Method), cancellationToken))
-                .ToHttpResult())
+        {
+            string? idempotencyKey = httpRequest.Headers["Idempotency-Key"].FirstOrDefault()
+                ?? request.IdempotencyKey;
+            return (await sender.Send(
+                    new StartPaymentCommand(
+                        request.OrderId,
+                        PaymentType.CargoPayment,
+                        request.Method,
+                        idempotencyKey),
+                    cancellationToken))
+                .ToHttpResult();
+        })
+            .WithTags("User: Payments")
             .RequireUser()
             .WithName("StartCargoPayment");
 
@@ -59,12 +84,13 @@ public sealed class PaymentsEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new ConfirmPaymentCommand(paymentId, request.ProviderTransactionId), cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Payments")
             .RequireUser()
             .WithName("ConfirmPayment");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin/payments")
-            .WithTags("Admin Payments")
+            .WithTags("Admin: Payments")
             .RequireAdmin();
 
         admin.MapGet("/", async (
@@ -80,6 +106,9 @@ public sealed class PaymentsEndpoints : IEndpoint
     }
 }
 
-public sealed record StartPaymentRequest(Guid OrderId, PaymentMethod Method);
+public sealed record StartPaymentRequest(
+    Guid OrderId,
+    PaymentMethod Method,
+    string? IdempotencyKey = null);
 
 public sealed record ConfirmPaymentRequest(string? ProviderTransactionId);

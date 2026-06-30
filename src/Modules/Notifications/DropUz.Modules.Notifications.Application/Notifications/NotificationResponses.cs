@@ -14,4 +14,8 @@ public sealed record NotificationResponse(
     NotificationStatus Status,
     DateTime CreatedAtUtc,
     DateTime? SentAtUtc,
-    string? FailureReason);
+    string? FailureReason,
+    int AttemptCount,
+    DateTime? LastAttemptAtUtc,
+    string? ProviderName,
+    string? ProviderMessageId);

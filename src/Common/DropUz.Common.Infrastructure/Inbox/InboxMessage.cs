@@ -11,15 +11,20 @@ public sealed class InboxMessage
     {
     }
 
-    public InboxMessage(Guid id, string type, string content, DateTime occurredOnUtc)
+    public InboxMessage(Guid id, string consumerName, string type, string content, DateTime occurredOnUtc)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(consumerName);
+
         Id = id;
+        ConsumerName = consumerName.Trim();
         Type = type;
         Content = content;
         OccurredOnUtc = occurredOnUtc;
     }
 
     public Guid Id { get; private set; }
+
+    public string ConsumerName { get; private set; } = string.Empty;
 
     public string Type { get; private set; } = string.Empty;
 
@@ -35,12 +40,15 @@ public sealed class InboxMessage
 
     public string? Error { get; private set; }
 
-    public static InboxMessage FromIntegrationEvent(IIntegrationEvent integrationEvent)
+    public static InboxMessage FromIntegrationEvent(
+        IIntegrationEvent integrationEvent,
+        string consumerName)
     {
         Type eventType = integrationEvent.GetType();
 
         return new InboxMessage(
             integrationEvent.Id,
+            consumerName,
             eventType.FullName ?? eventType.Name,
             JsonSerializer.Serialize(integrationEvent, eventType, SerializerOptions),
             integrationEvent.OccurredOnUtc);

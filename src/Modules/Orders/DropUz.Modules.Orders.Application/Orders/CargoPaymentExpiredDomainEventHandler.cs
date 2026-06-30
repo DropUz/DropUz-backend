@@ -1,53 +1,45 @@
 using DropUz.Common.Application.Data;
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Application.Messaging;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
-using DropUz.Modules.Sellers.Domain.Sellers;
-using Microsoft.EntityFrameworkCore;
+using DropUz.Modules.Orders.IntegrationEvents;
 
 namespace DropUz.Modules.Orders.Application.Orders;
 
 public sealed class CargoPaymentExpiredDomainEventHandler(
     IMainRepository repository,
-    INotificationService notificationService)
+    IIntegrationEventPublisher integrationEventPublisher)
     : IDomainEventHandler<CargoPaymentExpiredDomainEvent>
 {
     public async Task Handle(
         CargoPaymentExpiredDomainEvent domainEvent,
         CancellationToken cancellationToken)
     {
-        if (domainEvent.SellerId.HasValue)
+        Order order = await repository.GetAsync<Order>(domainEvent.OrderId)
+            ?? throw new InvalidOperationException(
+                $"Expired order '{domainEvent.OrderId}' was not found.");
+        if (order.UserId != domainEvent.UserId ||
+            order.SellerId != domainEvent.SellerId ||
+            order.SellerProfitTotal != domainEvent.SellerProfitTotal)
         {
-            SellerProfile? seller = await SellerBalanceLoader.GetSellerWithBalanceTransactionsAsync(
-                repository,
-                domainEvent.SellerId.Value,
-                cancellationToken);
-
-            seller?.ReversePendingProfit(
-                domainEvent.OrderId,
-                domainEvent.SellerProfitTotal,
-                "Cargo payment expired.",
-                domainEvent.ExpiredAtUtc);
+            throw new InvalidOperationException(
+                $"Cargo expiration event does not match order '{domainEvent.OrderId}'.");
         }
 
-        bool notificationExists = await repository
-            .Query<NotificationMessage>(notification =>
-                notification.OrderId == domainEvent.OrderId &&
-                notification.Type == NotificationType.CargoExpired)
-            .AnyAsync(cancellationToken);
-
-        if (!notificationExists)
+        var integrationEvent = new CargoPaymentExpiredIntegrationEvent(
+            domainEvent.Id,
+            domainEvent.OrderId,
+            domainEvent.UserId,
+            order.OrderNumber,
+            domainEvent.SellerId,
+            domainEvent.SellerProfitTotal,
+            domainEvent.ExpiredAtUtc)
         {
-            await notificationService.EnqueueAsync(
-                domainEvent.UserId,
-                domainEvent.OrderId,
-                NotificationType.CargoExpired,
-                "Cargo payment expired",
-                $"Cargo payment deadline for order {domainEvent.OrderId} expired.",
-                cancellationToken);
-        }
+            Id = IntegrationEventId.Create<CargoPaymentExpiredIntegrationEvent>(domainEvent.Id),
+            OccurredOnUtc = domainEvent.OccurredOnUtc
+        };
 
+        await integrationEventPublisher.PublishAsync(integrationEvent, cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

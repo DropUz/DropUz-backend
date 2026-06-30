@@ -53,6 +53,14 @@ public sealed class NotificationMessage : Entity
 
     public string? FailureReason { get; private set; }
 
+    public int AttemptCount { get; private set; }
+
+    public DateTime? LastAttemptAtUtc { get; private set; }
+
+    public string? ProviderName { get; private set; }
+
+    public string? ProviderMessageId { get; private set; }
+
     public static NotificationMessage Create(
         Guid userId,
         Guid? orderId,
@@ -68,20 +76,44 @@ public sealed class NotificationMessage : Entity
 
     public void MarkSent(DateTime nowUtc)
     {
+        MarkSent(nowUtc, "unknown", null);
+    }
+
+    public void MarkSent(DateTime nowUtc, string providerName, string? providerMessageId)
+    {
         Status = NotificationStatus.Sent;
         SentAtUtc = nowUtc;
         FailureReason = null;
+        AttemptCount++;
+        LastAttemptAtUtc = nowUtc;
+        ProviderName = providerName;
+        ProviderMessageId = providerMessageId;
     }
 
     public void MarkFailed(string failureReason)
     {
-        Status = NotificationStatus.Failed;
-        FailureReason = failureReason;
+        MarkFailed(failureReason, CreatedAtUtc, null);
     }
 
-    public void Retry()
+    public void MarkFailed(string failureReason, DateTime nowUtc, string? providerName)
     {
+        Status = NotificationStatus.Failed;
+        FailureReason = failureReason.Trim();
+        AttemptCount++;
+        LastAttemptAtUtc = nowUtc;
+        ProviderName = providerName;
+        ProviderMessageId = null;
+    }
+
+    public bool Retry()
+    {
+        if (Status != NotificationStatus.Failed)
+        {
+            return false;
+        }
+
         Status = NotificationStatus.Pending;
         FailureReason = null;
+        return true;
     }
 }

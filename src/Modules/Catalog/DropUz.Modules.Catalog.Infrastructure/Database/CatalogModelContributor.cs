@@ -1,5 +1,6 @@
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Modules.Catalog.Domain.Categories;
+using DropUz.Modules.Catalog.Domain.Imports;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ internal sealed class CatalogModelContributor : IMainDbContextModelContributor
     {
         modelBuilder.ApplyConfiguration(new CategoryConfiguration());
         modelBuilder.ApplyConfiguration(new CatalogProductConfiguration());
+        modelBuilder.ApplyConfiguration(new CatalogImportLogConfiguration());
         modelBuilder.ApplyConfiguration(new CatalogPricingSettingsConfiguration());
     }
 }
@@ -27,6 +29,28 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
         builder.Property(category => category.Slug).HasMaxLength(220).IsRequired();
         builder.HasIndex(category => category.Slug).IsUnique();
         builder.HasIndex(category => category.CreatedAtUtc);
+    }
+}
+
+internal sealed class CatalogImportLogConfiguration : IEntityTypeConfiguration<CatalogImportLog>
+{
+    public void Configure(EntityTypeBuilder<CatalogImportLog> builder)
+    {
+        builder.ToTable("import_logs", Schemas.Catalog);
+        builder.HasKey(importLog => importLog.Id);
+        builder.Property(importLog => importLog.SourcePlatform).HasMaxLength(100).IsRequired();
+        builder.Property(importLog => importLog.SourceProductId).HasMaxLength(200).IsRequired();
+        builder.Property(importLog => importLog.ProviderName).HasMaxLength(100).IsRequired();
+        builder.Property(importLog => importLog.ErrorCode).HasMaxLength(200);
+        builder.Property(importLog => importLog.ErrorMessage).HasMaxLength(1000);
+        builder.HasIndex(importLog => new { importLog.Status, importLog.CompletedAtUtc });
+        builder.HasIndex(importLog => new
+        {
+            importLog.SourcePlatform,
+            importLog.SourceProductId,
+            importLog.CompletedAtUtc
+        });
+        builder.HasIndex(importLog => importLog.CatalogProductId);
     }
 }
 

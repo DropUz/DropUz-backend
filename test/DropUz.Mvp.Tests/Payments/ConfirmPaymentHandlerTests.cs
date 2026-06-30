@@ -58,7 +58,8 @@ public sealed class ConfirmPaymentHandlerTests
         return new ConfirmPaymentCommandHandler(
             repository,
             new TestCurrentUser(currentUserId),
-            new TestDateTimeProvider(new DateTime(2026, 06, 23, 10, 0, 0, DateTimeKind.Utc)));
+            new TestDateTimeProvider(new DateTime(2026, 06, 23, 10, 0, 0, DateTimeKind.Utc)),
+            new PaymentProviderRegistry([new DropUz.Mvp.Tests.Support.TestPaymentProvider()]));
     }
 
     private static Payment CreateProductPayment(Guid ownerId, out Order order)

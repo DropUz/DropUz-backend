@@ -1,5 +1,7 @@
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Infrastructure;
 using DropUz.Common.Infrastructure.Inbox;
+using DropUz.Common.Infrastructure.Outbox;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,5 +27,10 @@ public sealed class CommonInfrastructureRegistrationTests
             descriptor.ImplementationType?.Name == "OutboxMessageProcessorHostedService");
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(InboxMessageService));
+        Assert.Contains(services, descriptor =>
+            descriptor.ServiceType == typeof(IIntegrationEventInbox));
+        Assert.Contains(services, descriptor =>
+            descriptor.ServiceType == typeof(IIntegrationEventPublisher) &&
+            descriptor.ImplementationType == typeof(OutboxIntegrationEventPublisher));
     }
 }

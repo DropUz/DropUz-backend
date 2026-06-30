@@ -13,11 +13,11 @@ public sealed class CartEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder cart = app
-            .MapGroup("/api/cart")
-            .WithTags("Cart");
+        RouteGroupBuilder cart = app.MapGroup("/api/cart");
 
         cart.MapGet("/status", () => Results.Ok(new { module = "cart", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetCartStatus");
 
         cart.MapGet("/", async (
@@ -25,6 +25,7 @@ public sealed class CartEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new GetMyCartQuery(sellerId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Cart")
             .RequireUser()
             .WithName("GetMyCart");
 
@@ -34,6 +35,7 @@ public sealed class CartEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new AddCartItemCommand(request.ProductId, request.SellerId, request.Quantity), cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Cart")
             .RequireUser()
             .WithName("AddCartItem");
 
@@ -44,6 +46,7 @@ public sealed class CartEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new UpdateCartItemCommand(cartItemId, request.SellerId, request.Quantity), cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Cart")
             .RequireUser()
             .WithName("UpdateCartItem");
 
@@ -53,6 +56,7 @@ public sealed class CartEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new RemoveCartItemCommand(cartItemId, sellerId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Cart")
             .RequireUser()
             .WithName("RemoveCartItem");
 
@@ -61,6 +65,7 @@ public sealed class CartEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new ClearCartCommand(sellerId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Cart")
             .RequireUser()
             .WithName("ClearCart");
     }

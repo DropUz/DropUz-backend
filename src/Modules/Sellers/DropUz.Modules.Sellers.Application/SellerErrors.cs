@@ -24,6 +24,10 @@ public static class SellerErrors
         "Sellers.SellerProductNotFound",
         "Seller product was not found.");
 
+    public static readonly Error CatalogProductNotAvailable = Error.Validation(
+        "Sellers.CatalogProductNotAvailable",
+        "Only approved catalog products can be added to a seller shop.");
+
     public static readonly Error MarkupInvalid = Error.Validation(
         "Sellers.MarkupInvalid",
         "Markup value cannot be negative.");

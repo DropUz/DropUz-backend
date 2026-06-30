@@ -1,11 +1,11 @@
 using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
+using DropUz.Common.Application.EventBus;
 using DropUz.Modules.Catalog.Domain.Pricing;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Payments.Application.Payments;
 using DropUz.Modules.Payments.Domain.Payments;
+using DropUz.Modules.Payments.IntegrationEvents;
 using Xunit;
 
 namespace DropUz.Mvp.Tests.Payments;
@@ -25,18 +25,17 @@ public sealed class CargoPaymentCompletedEventTests
             PaymentMethod.Humo,
             order.CargoTotal,
             nowUtc.AddMinutes(-10));
-        var notificationService = new CapturingNotificationService();
         var repository = new Support.InMemoryMainRepository(order, payment);
         var handler = new ConfirmPaymentCommandHandler(
             repository,
             new TestCurrentUser(buyerId),
-            new TestDateTimeProvider(nowUtc));
+            new TestDateTimeProvider(nowUtc),
+            new PaymentProviderRegistry([new Support.TestPaymentProvider()]));
 
         await handler.Handle(new ConfirmPaymentCommand(payment.Id, "cargo-provider-tx-1"), CancellationToken.None);
 
         Assert.Equal(PaymentStatus.Paid, payment.Status);
         Assert.Equal(OrderStatus.PendingCargoPayment, order.Status);
-        Assert.Empty(notificationService.Notifications);
         Assert.Single(payment.DomainEvents.OfType<CargoPaymentCompletedDomainEvent>());
     }
 
@@ -67,43 +66,14 @@ public sealed class CargoPaymentCompletedEventTests
     }
 
     [Fact]
-    public async Task CargoPaymentCompletedHandlerUpdatesOrderAndNotification()
+    public async Task DomainHandlerPublishesCargoPaymentCompletedIntegrationEventWithoutDirectSideEffects()
     {
         Guid buyerId = Guid.NewGuid();
         DateTime paidAtUtc = new(2026, 06, 25, 10, 0, 0, DateTimeKind.Utc);
         Order order = CreateCargoPaymentOrder(buyerId, paidAtUtc.AddHours(-2));
-        var notificationService = new CapturingNotificationService();
         var repository = new Support.InMemoryMainRepository(order);
-        var handler = new CargoPaymentCompletedDomainEventHandler(repository, notificationService);
-
-        await handler.Handle(
-            new CargoPaymentCompletedDomainEvent(
-                Guid.NewGuid(),
-                order.Id,
-                buyerId,
-                order.CargoTotal,
-                paidAtUtc,
-                "cargo-provider-tx-1"),
-            CancellationToken.None);
-
-        Assert.Equal(OrderStatus.CargoPaid, order.Status);
-        Assert.Equal(paidAtUtc, order.CargoPaidAtUtc);
-
-        CapturedNotification notification = Assert.Single(notificationService.Notifications);
-        Assert.Equal(buyerId, notification.UserId);
-        Assert.Equal(order.Id, notification.OrderId);
-        Assert.Equal(NotificationType.PaymentReceived, notification.Type);
-    }
-
-    [Fact]
-    public async Task CargoPaymentCompletedHandlerIsIdempotent()
-    {
-        Guid buyerId = Guid.NewGuid();
-        DateTime paidAtUtc = new(2026, 06, 25, 10, 0, 0, DateTimeKind.Utc);
-        Order order = CreateCargoPaymentOrder(buyerId, paidAtUtc.AddHours(-2));
-        var notificationService = new CapturingNotificationService();
-        var repository = new Support.InMemoryMainRepository(order);
-        var handler = new CargoPaymentCompletedDomainEventHandler(repository, notificationService);
+        var publisher = new CapturingIntegrationEventPublisher();
+        var handler = new CargoPaymentCompletedDomainEventHandler(repository, publisher);
         var domainEvent = new CargoPaymentCompletedDomainEvent(
             Guid.NewGuid(),
             order.Id,
@@ -113,10 +83,21 @@ public sealed class CargoPaymentCompletedEventTests
             "cargo-provider-tx-1");
 
         await handler.Handle(domainEvent, CancellationToken.None);
-        await handler.Handle(domainEvent, CancellationToken.None);
 
-        Assert.Equal(OrderStatus.CargoPaid, order.Status);
-        Assert.Single(notificationService.Notifications);
+        CargoPaymentCompletedIntegrationEvent integrationEvent = Assert.IsType<CargoPaymentCompletedIntegrationEvent>(
+            Assert.Single(publisher.PublishedEvents));
+        Assert.Equal(
+            IntegrationEventId.Create<CargoPaymentCompletedIntegrationEvent>(domainEvent.Id),
+            integrationEvent.Id);
+        Assert.Equal(domainEvent.Id, integrationEvent.SourceEventId);
+        Assert.Equal(domainEvent.PaymentId, integrationEvent.PaymentId);
+        Assert.Equal(order.Id, integrationEvent.OrderId);
+        Assert.Equal(buyerId, integrationEvent.UserId);
+        Assert.Equal(order.CargoTotal, integrationEvent.Amount);
+        Assert.Equal(order.OrderNumber, integrationEvent.OrderNumber);
+        Assert.Equal(paidAtUtc, integrationEvent.PaidAtUtc);
+        Assert.Equal("cargo-provider-tx-1", integrationEvent.ProviderTransactionId);
+        Assert.Equal(OrderStatus.PendingCargoPayment, order.Status);
     }
 
     private static Order CreateCargoPaymentOrder(Guid buyerId, DateTime createdAtUtc)
@@ -153,29 +134,18 @@ public sealed class CargoPaymentCompletedEventTests
         return order;
     }
 
-    private sealed class CapturingNotificationService : INotificationService
+    private sealed class CapturingIntegrationEventPublisher : IIntegrationEventPublisher
     {
-        public List<CapturedNotification> Notifications { get; } = [];
+        public List<IIntegrationEvent> PublishedEvents { get; } = [];
 
-        public Task EnqueueAsync(
-            Guid userId,
-            Guid? orderId,
-            NotificationType type,
-            string subject,
-            string body,
+        public Task PublishAsync(
+            IIntegrationEvent integrationEvent,
             CancellationToken cancellationToken = default)
         {
-            Notifications.Add(new CapturedNotification(userId, orderId, type, subject, body));
+            PublishedEvents.Add(integrationEvent);
             return Task.CompletedTask;
         }
     }
-
-    private sealed record CapturedNotification(
-        Guid UserId,
-        Guid? OrderId,
-        NotificationType Type,
-        string Subject,
-        string Body);
 
     private sealed class TestCurrentUser(Guid userId) : ICurrentUser
     {

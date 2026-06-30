@@ -16,10 +16,15 @@ public static class AdminAuditActions
     public static class Catalog
     {
         public const string CategoryUpserted = "Admin.Catalog.CategoryUpserted";
+        public const string CategoryUpdated = "Admin.Catalog.CategoryUpdated";
+        public const string CategoryDeleted = "Admin.Catalog.CategoryDeleted";
         public const string ProductImported = "Admin.Catalog.ProductImported";
         public const string ProductImportUpdated = "Admin.Catalog.ProductImportUpdated";
         public const string ProductApproved = "Admin.Catalog.ProductApproved";
         public const string ProductRejected = "Admin.Catalog.ProductRejected";
+        public const string ProductActivated = "Admin.Catalog.ProductActivated";
+        public const string ProductDeactivated = "Admin.Catalog.ProductDeactivated";
+        public const string ProductDeleted = "Admin.Catalog.ProductDeleted";
         public const string GlobalMarkupUpdated = "Admin.Catalog.GlobalMarkupUpdated";
         public const string ProductMarkupUpdated = "Admin.Catalog.ProductMarkupUpdated";
     }
@@ -34,6 +39,8 @@ public static class AdminAuditActions
 
     public static class Sellers
     {
+        public const string ProfitPendingCreated = "Admin.Sellers.ProfitPendingCreated";
+        public const string ProfitAvailable = "Admin.Sellers.ProfitAvailable";
         public const string WithdrawalRecorded = "Admin.Sellers.WithdrawalRecorded";
     }
 

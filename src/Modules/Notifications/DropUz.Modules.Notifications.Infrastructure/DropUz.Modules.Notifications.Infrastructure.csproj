@@ -7,6 +7,8 @@
     <ProjectReference Include="..\DropUz.Modules.Notifications.Application\DropUz.Modules.Notifications.Application.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Notifications.Domain\DropUz.Modules.Notifications.Domain.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Notifications.Presentation\DropUz.Modules.Notifications.Presentation.csproj" />
+    <ProjectReference Include="..\..\Orders\DropUz.Modules.Orders.IntegrationEvents\DropUz.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Payments\DropUz.Modules.Payments.IntegrationEvents\DropUz.Modules.Payments.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

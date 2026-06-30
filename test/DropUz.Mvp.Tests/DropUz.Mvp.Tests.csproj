@@ -1,15 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Api\DropUz.Api\DropUz.Api.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admin\DropUz.Modules.Admin.Application\DropUz.Modules.Admin.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admin\DropUz.Modules.Admin.Domain\DropUz.Modules.Admin.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Admin\DropUz.Modules.Admin.Presentation\DropUz.Modules.Admin.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Catalog\DropUz.Modules.Catalog.Presentation\DropUz.Modules.Catalog.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Catalog\DropUz.Modules.Catalog.IntegrationEvents\DropUz.Modules.Catalog.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sellers\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sellers\DropUz.Modules.Sellers.IntegrationEvents\DropUz.Modules.Sellers.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sellers\DropUz.Modules.Sellers.Presentation\DropUz.Modules.Sellers.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Cart\DropUz.Modules.Cart.Presentation\DropUz.Modules.Cart.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Domain\DropUz.Modules.Orders.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Application\DropUz.Modules.Orders.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.IntegrationEvents\DropUz.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Orders\DropUz.Modules.Orders.Presentation\DropUz.Modules.Orders.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Cargo\DropUz.Modules.Cargo.Infrastructure\DropUz.Modules.Cargo.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Cargo\DropUz.Modules.Cargo.Presentation\DropUz.Modules.Cargo.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Notifications\DropUz.Modules.Notifications.Application\DropUz.Modules.Notifications.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\DropUz.Modules.Notifications.Presentation\DropUz.Modules.Notifications.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\DropUz.Modules.Payments.Application\DropUz.Modules.Payments.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\DropUz.Modules.Payments.IntegrationEvents\DropUz.Modules.Payments.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\DropUz.Modules.Payments.Presentation\DropUz.Modules.Payments.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,12 +1,12 @@
+using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Domain;
-using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Domain.Pricing;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Application.Orders;
 using DropUz.Modules.Orders.Domain.Orders;
+using DropUz.Modules.Orders.IntegrationEvents;
 using DropUz.Modules.Sellers.Domain.Sellers;
 using DropUz.Mvp.Tests.Support;
 using Xunit;
@@ -44,8 +44,7 @@ public sealed class OrderDeliveredEventTests
         var handler = new AdminUpdateOrderStatusCommandHandler(
             repository,
             new TestDateTimeProvider(nowUtc),
-            new NoOpAdminAuditService(),
-            new NoOpNotificationService());
+            new TestCurrentUser(Guid.NewGuid()));
 
         Result<OrderResponse> result = await handler.Handle(
             new AdminUpdateOrderStatusCommand(order.Id, OrderStatus.Delivered, "Delivered"),
@@ -59,39 +58,15 @@ public sealed class OrderDeliveredEventTests
     }
 
     [Fact]
-    public async Task OrderDeliveredHandlerMovesSellerProfitToAvailableBalance()
+    public async Task DomainHandlerPublishesOrderDeliveredIntegrationEventWithoutDirectSellerMutation()
     {
         DateTime deliveredAtUtc = new(2026, 06, 26, 14, 0, 0, DateTimeKind.Utc);
         SellerProfile seller = SellerProfile.Create(Guid.NewGuid(), "Drop seller", "drop-seller", deliveredAtUtc.AddDays(-2));
         Order order = CreateCargoPaidSellerOrder(Guid.NewGuid(), seller.Id, deliveredAtUtc.AddDays(-1));
         seller.RecordProductPayment(order.Id, order.SellerProfitTotal, deliveredAtUtc.AddHours(-2));
         var repository = new InMemoryMainRepository(order, seller);
-        var handler = new OrderDeliveredDomainEventHandler(repository);
-
-        await handler.Handle(
-            new OrderDeliveredDomainEvent(
-                order.Id,
-                order.UserId,
-                seller.Id,
-                order.SellerProfitTotal,
-                deliveredAtUtc),
-            CancellationToken.None);
-
-        Assert.Equal(0m, seller.PendingBalance);
-        Assert.Equal(order.SellerProfitTotal, seller.AvailableBalance);
-        Assert.Equal(order.SellerProfitTotal, seller.TotalEarned);
-        Assert.Equal(2, seller.BalanceTransactions.Count);
-    }
-
-    [Fact]
-    public async Task OrderDeliveredHandlerIsIdempotent()
-    {
-        DateTime deliveredAtUtc = new(2026, 06, 26, 14, 0, 0, DateTimeKind.Utc);
-        SellerProfile seller = SellerProfile.Create(Guid.NewGuid(), "Drop seller", "drop-seller", deliveredAtUtc.AddDays(-2));
-        Order order = CreateCargoPaidSellerOrder(Guid.NewGuid(), seller.Id, deliveredAtUtc.AddDays(-1));
-        seller.RecordProductPayment(order.Id, order.SellerProfitTotal, deliveredAtUtc.AddHours(-2));
-        var repository = new InMemoryMainRepository(order, seller);
-        var handler = new OrderDeliveredDomainEventHandler(repository);
+        var publisher = new CapturingIntegrationEventPublisher();
+        var handler = new OrderDeliveredDomainEventHandler(repository, publisher);
         var domainEvent = new OrderDeliveredDomainEvent(
             order.Id,
             order.UserId,
@@ -100,11 +75,21 @@ public sealed class OrderDeliveredEventTests
             deliveredAtUtc);
 
         await handler.Handle(domainEvent, CancellationToken.None);
-        await handler.Handle(domainEvent, CancellationToken.None);
 
-        Assert.Equal(0m, seller.PendingBalance);
-        Assert.Equal(order.SellerProfitTotal, seller.AvailableBalance);
-        Assert.Equal(2, seller.BalanceTransactions.Count);
+        OrderDeliveredIntegrationEvent integrationEvent = Assert.IsType<OrderDeliveredIntegrationEvent>(
+            Assert.Single(publisher.PublishedEvents));
+        Assert.Equal(
+            IntegrationEventId.Create<OrderDeliveredIntegrationEvent>(domainEvent.Id),
+            integrationEvent.Id);
+        Assert.Equal(domainEvent.Id, integrationEvent.SourceEventId);
+        Assert.Equal(order.Id, integrationEvent.OrderId);
+        Assert.Equal(order.UserId, integrationEvent.UserId);
+        Assert.Equal(seller.Id, integrationEvent.SellerId);
+        Assert.Equal(order.SellerProfitTotal, integrationEvent.SellerProfitTotal);
+        Assert.Equal(deliveredAtUtc, integrationEvent.DeliveredAtUtc);
+        Assert.Equal(order.SellerProfitTotal, seller.PendingBalance);
+        Assert.Equal(0m, seller.AvailableBalance);
+        Assert.Equal(order.SellerProfitTotal, seller.TotalEarned);
     }
 
     private static Order CreateCargoPaidSellerOrder(Guid buyerId, Guid sellerId, DateTime createdAtUtc)
@@ -149,29 +134,26 @@ public sealed class OrderDeliveredEventTests
         public DateTimeOffset OffsetUtcNow => new(utcNow);
     }
 
-    private sealed class NoOpAdminAuditService : IAdminAuditService
+    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
     {
-        public Task RecordAsync(
-            string action,
-            string entityType,
-            Guid? entityId = null,
-            string? details = null,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
+        public Guid? UserId { get; } = userId;
+
+        public string? UserName => "admin";
+
+        public bool IsAuthenticated => true;
+
+        public IReadOnlyCollection<string> Roles => ["admin"];
     }
 
-    private sealed class NoOpNotificationService : INotificationService
+    private sealed class CapturingIntegrationEventPublisher : IIntegrationEventPublisher
     {
-        public Task EnqueueAsync(
-            Guid userId,
-            Guid? orderId,
-            NotificationType type,
-            string subject,
-            string body,
+        public List<IIntegrationEvent> PublishedEvents { get; } = [];
+
+        public Task PublishAsync(
+            IIntegrationEvent integrationEvent,
             CancellationToken cancellationToken = default)
         {
+            PublishedEvents.Add(integrationEvent);
             return Task.CompletedTask;
         }
     }

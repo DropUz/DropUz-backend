@@ -7,22 +7,29 @@ namespace DropUz.Common.Infrastructure.Inbox;
 
 public sealed class InboxMessageService(
     MainDbContext context,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider) : IIntegrationEventInbox
 {
     public async Task<bool> TryStartProcessingAsync(
         IIntegrationEvent integrationEvent,
+        string consumerName,
         CancellationToken cancellationToken = default)
     {
-        bool exists = await context
-            .Set<InboxMessage>()
-            .AnyAsync(message => message.Id == integrationEvent.Id, cancellationToken);
+        consumerName = NormalizeConsumerName(consumerName);
 
-        if (exists)
+        InboxMessage? existingMessage = await context
+            .Set<InboxMessage>()
+            .SingleOrDefaultAsync(
+                message => message.Id == integrationEvent.Id && message.ConsumerName == consumerName,
+                cancellationToken);
+
+        if (existingMessage is not null)
         {
-            return false;
+            return existingMessage.ProcessedOnUtc is null;
         }
 
-        await context.Set<InboxMessage>().AddAsync(InboxMessage.FromIntegrationEvent(integrationEvent), cancellationToken);
+        await context.Set<InboxMessage>().AddAsync(
+            InboxMessage.FromIntegrationEvent(integrationEvent, consumerName),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         return true;
@@ -30,26 +37,70 @@ public sealed class InboxMessageService(
 
     public async Task MarkProcessedAsync(
         IIntegrationEvent integrationEvent,
+        string consumerName,
         CancellationToken cancellationToken = default)
     {
-        InboxMessage message = await GetRequiredMessageAsync(integrationEvent.Id, cancellationToken);
+        consumerName = NormalizeConsumerName(consumerName);
+        InboxMessage message = await GetRequiredMessageAsync(
+            integrationEvent.Id,
+            consumerName,
+            cancellationToken);
         message.MarkProcessed(dateTimeProvider.UtcNow);
         await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task MarkFailedAsync(
         IIntegrationEvent integrationEvent,
+        string consumerName,
         string error,
         CancellationToken cancellationToken = default)
     {
-        InboxMessage message = await GetRequiredMessageAsync(integrationEvent.Id, cancellationToken);
+        consumerName = NormalizeConsumerName(consumerName);
+        DiscardPendingConsumerChanges();
+        InboxMessage message = await GetRequiredMessageAsync(
+            integrationEvent.Id,
+            consumerName,
+            cancellationToken);
         message.MarkFailed(error, dateTimeProvider.UtcNow);
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<InboxMessage> GetRequiredMessageAsync(Guid id, CancellationToken cancellationToken)
+    private void DiscardPendingConsumerChanges()
     {
-        return await context.Set<InboxMessage>().FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException($"Inbox message '{id}' was not found.");
+        foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry in context.ChangeTracker
+                     .Entries()
+                     .Where(entry => entry.Entity is not InboxMessage)
+                     .ToArray())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.State = EntityState.Detached;
+                    break;
+                case EntityState.Modified:
+                    entry.CurrentValues.SetValues(entry.OriginalValues);
+                    entry.State = EntityState.Unchanged;
+                    break;
+                case EntityState.Deleted:
+                    entry.State = EntityState.Unchanged;
+                    break;
+            }
+        }
+    }
+
+    private async Task<InboxMessage> GetRequiredMessageAsync(
+        Guid id,
+        string consumerName,
+        CancellationToken cancellationToken)
+    {
+        return await context.Set<InboxMessage>().FindAsync([id, consumerName], cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Inbox message '{id}' for consumer '{consumerName}' was not found.");
+    }
+
+    private static string NormalizeConsumerName(string consumerName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(consumerName);
+        return consumerName.Trim();
     }
 }

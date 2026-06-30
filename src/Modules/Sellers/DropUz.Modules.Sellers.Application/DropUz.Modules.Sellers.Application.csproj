@@ -2,10 +2,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\DropUz.Common.Application\DropUz.Common.Application.csproj" />
-    <ProjectReference Include="..\..\Admin\DropUz.Modules.Admin.Application\DropUz.Modules.Admin.Application.csproj" />
     <ProjectReference Include="..\..\Catalog\DropUz.Modules.Catalog.Application\DropUz.Modules.Catalog.Application.csproj" />
     <ProjectReference Include="..\..\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\..\Orders\DropUz.Modules.Orders.IntegrationEvents\DropUz.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Payments\DropUz.Modules.Payments.IntegrationEvents\DropUz.Modules.Payments.IntegrationEvents.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
+    <ProjectReference Include="..\DropUz.Modules.Sellers.IntegrationEvents\DropUz.Modules.Sellers.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

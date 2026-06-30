@@ -8,7 +8,7 @@ using System.Reflection;
 namespace DropUz.Common.Infrastructure.Outbox;
 
 public sealed class OutboxMessageDispatcher(
-    IServiceProvider serviceProvider,
+    IServiceScopeFactory scopeFactory,
     OutboxMessageTypeResolver typeResolver)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -41,7 +41,8 @@ public sealed class OutboxMessageDispatcher(
         CancellationToken cancellationToken)
     {
         Type handlerType = openHandlerType.MakeGenericType(eventType);
-        object[] handlers = serviceProvider
+        await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+        object[] handlers = scope.ServiceProvider
             .GetServices(handlerType)
             .Where(handler => handler is not null)
             .Cast<object>()

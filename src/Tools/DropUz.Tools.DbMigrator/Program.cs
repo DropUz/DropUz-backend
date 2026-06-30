@@ -28,7 +28,7 @@ builder.Services.AddCatalogModule();
 builder.Services.AddSellersModule();
 builder.Services.AddCartModule();
 builder.Services.AddOrdersModule();
-builder.Services.AddNotificationsModule();
+builder.Services.AddNotificationsModule(builder.Configuration);
 builder.Services.AddPaymentsModule();
 builder.Services.AddCargoModule(builder.Configuration);
 builder.Services.AddAdminModule();

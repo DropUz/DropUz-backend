@@ -22,10 +22,17 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(payment => payment.Amount).HasPrecision(18, 2);
         builder.Property(payment => payment.Provider).HasMaxLength(100).IsRequired();
         builder.Property(payment => payment.ProviderTransactionId).HasMaxLength(300).IsRequired();
+        builder.Property(payment => payment.IdempotencyKey).HasMaxLength(200);
         builder.HasIndex(payment => payment.OrderId);
         builder.HasIndex(payment => payment.UserId);
         builder.HasIndex(payment => payment.Status);
         builder.HasIndex(payment => payment.CreatedAtUtc);
         builder.HasIndex(payment => payment.ProviderTransactionId).IsUnique();
+        builder.HasIndex(payment => new { payment.UserId, payment.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+        builder.HasIndex(payment => new { payment.OrderId, payment.UserId, payment.Type })
+            .IsUnique()
+            .HasFilter("\"Status\" = 1");
     }
 }

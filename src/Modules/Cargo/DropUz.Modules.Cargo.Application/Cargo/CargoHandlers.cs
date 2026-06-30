@@ -63,7 +63,6 @@ public sealed class SetCargoDeadlineSettingsCommandHandler(
 public sealed class RecordCargoPriceCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    INotificationService notificationService,
     IAdminAuditService auditService)
     : ICommandHandler<RecordCargoPriceCommand, CargoPriceResponse>
 {
@@ -100,14 +99,6 @@ public sealed class RecordCargoPriceCommandHandler(
             dateTimeProvider.UtcNow);
 
         await repository.AddAsync(record);
-        await notificationService.EnqueueAsync(
-            order.UserId,
-            order.Id,
-            NotificationType.CargoPriceAdded,
-            "Cargo price added",
-            $"Cargo price for order {order.Id} is {command.CargoPrice}.",
-            cancellationToken);
-
         await auditService.RecordAsync(
             AdminAuditActions.Cargo.PriceRecorded,
             entityType: "Order",

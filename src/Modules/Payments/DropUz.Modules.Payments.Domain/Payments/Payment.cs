@@ -16,7 +16,9 @@ public sealed class Payment : Entity
         PaymentMethod method,
         decimal amount,
         string provider,
-        DateTime createdAtUtc)
+        string providerTransactionId,
+        DateTime createdAtUtc,
+        string? idempotencyKey)
         : base(id)
     {
         OrderId = orderId;
@@ -25,7 +27,8 @@ public sealed class Payment : Entity
         Method = method;
         Amount = amount;
         Provider = provider;
-        ProviderTransactionId = $"{provider}-{id:N}";
+        ProviderTransactionId = providerTransactionId;
+        IdempotencyKey = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
         Status = PaymentStatus.Pending;
         CreatedAtUtc = createdAtUtc;
     }
@@ -44,6 +47,8 @@ public sealed class Payment : Entity
 
     public string ProviderTransactionId { get; private set; } = string.Empty;
 
+    public string? IdempotencyKey { get; private set; }
+
     public PaymentStatus Status { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -58,7 +63,45 @@ public sealed class Payment : Entity
         decimal amount,
         DateTime createdAtUtc)
     {
-        return new Payment(Guid.NewGuid(), orderId, userId, type, method, amount, "manual", createdAtUtc);
+        Guid paymentId = Guid.NewGuid();
+        return new Payment(
+            paymentId,
+            orderId,
+            userId,
+            type,
+            method,
+            amount,
+            "manual",
+            $"manual-{paymentId:N}",
+            createdAtUtc,
+            idempotencyKey: null);
+    }
+
+    public static Payment Start(
+        Guid orderId,
+        Guid userId,
+        PaymentType type,
+        PaymentMethod method,
+        decimal amount,
+        string provider,
+        string providerTransactionId,
+        DateTime createdAtUtc,
+        string? idempotencyKey = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerTransactionId);
+
+        return new Payment(
+            Guid.NewGuid(),
+            orderId,
+            userId,
+            type,
+            method,
+            amount,
+            provider.Trim(),
+            providerTransactionId.Trim(),
+            createdAtUtc,
+            idempotencyKey);
     }
 
     public void MarkPaid(string? providerTransactionId, DateTime nowUtc)

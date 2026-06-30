@@ -4,7 +4,6 @@ using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
-using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Application.Products;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
@@ -156,6 +155,11 @@ public sealed class AddSellerProductCommandHandler(
             return Result.Failure<SellerProductResponse>(DropUz.Modules.Catalog.Application.CatalogErrors.ProductNotFound);
         }
 
+        if (product.Status != ProductStatus.Approved)
+        {
+            return Result.Failure<SellerProductResponse>(SellerErrors.CatalogProductNotAvailable);
+        }
+
         SellerProduct? sellerProduct = await repository
             .Query<SellerProduct>(x => x.SellerId == sellerResult.Value.Id && x.ProductId == command.ProductId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -166,12 +170,65 @@ public sealed class AddSellerProductCommandHandler(
             await repository.AddAsync(sellerProduct);
             await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
         }
+        else if (!sellerProduct.IsActive)
+        {
+            sellerProduct.Activate(dateTimeProvider.UtcNow);
+            await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+        }
 
         return await SellerMapper.MapProductAsync(
             repository,
             sellerPricingService,
             sellerProduct,
             cancellationToken);
+    }
+}
+
+public sealed class RemoveSellerProductCommandHandler(
+    IMainRepository repository,
+    ICurrentUser currentUser,
+    IDateTimeProvider dateTimeProvider,
+    ISellerPricingService sellerPricingService)
+    : ICommandHandler<RemoveSellerProductCommand, SellerProductResponse>
+{
+    public async Task<Result<SellerProductResponse>> Handle(
+        RemoveSellerProductCommand command,
+        CancellationToken cancellationToken)
+    {
+        Result<SellerProfile> sellerResult = await SellerMapper.GetCurrentSellerAsync(
+            repository,
+            currentUser,
+            cancellationToken);
+        if (sellerResult.IsFailure)
+        {
+            return Result.Failure<SellerProductResponse>(sellerResult.Error);
+        }
+
+        SellerProduct? sellerProduct = await repository
+            .Query<SellerProduct>(product =>
+                product.Id == command.SellerProductId &&
+                product.SellerId == sellerResult.Value.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (sellerProduct is null)
+        {
+            return Result.Failure<SellerProductResponse>(SellerErrors.SellerProductNotFound);
+        }
+
+        Result<SellerProductResponse> response = await SellerMapper.MapProductAsync(
+            repository,
+            sellerPricingService,
+            sellerProduct,
+            cancellationToken);
+        if (response.IsFailure)
+        {
+            return response;
+        }
+
+        sellerProduct.Deactivate(dateTimeProvider.UtcNow);
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Success(response.Value with { IsActive = false });
     }
 }
 
@@ -220,7 +277,7 @@ public sealed class SetSellerProductMarkupCommandHandler(
 public sealed class RecordSellerWithdrawalCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    IAdminAuditService auditService)
+    ICurrentUser currentUser)
     : ICommandHandler<RecordSellerWithdrawalCommand, SellerBalanceResponse>
 {
     public async Task<Result<SellerBalanceResponse>> Handle(
@@ -233,17 +290,15 @@ public sealed class RecordSellerWithdrawalCommandHandler(
             return Result.Failure<SellerBalanceResponse>(SellerErrors.SellerNotFound);
         }
 
-        if (!seller.TryWithdraw(command.Amount, command.Note, dateTimeProvider.UtcNow))
+        if (!seller.TryWithdraw(
+                command.Amount,
+                command.Note,
+                dateTimeProvider.UtcNow,
+                currentUser.UserId))
         {
             return Result.Failure<SellerBalanceResponse>(SellerErrors.WithdrawalInvalid);
         }
 
-        await auditService.RecordAsync(
-            AdminAuditActions.Sellers.WithdrawalRecorded,
-            entityType: "SellerProfile",
-            entityId: seller.Id,
-            details: $"amount={command.Amount}",
-            cancellationToken: cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(SellerMapper.MapBalance(seller));
@@ -354,8 +409,16 @@ public sealed class GetShopProductsQueryHandler(
             return Result.Failure<PagedResponse<SellerProductResponse>>(SellerErrors.SellerNotFound);
         }
 
-        IQueryable<SellerProduct> query = repository
-            .Query<SellerProduct>(x => x.SellerId == seller.Id && x.IsActive)
+        IQueryable<SellerProduct> query =
+            from sellerProduct in repository.Query<SellerProduct>()
+            join product in repository.Query<CatalogProduct>()
+                on sellerProduct.ProductId equals product.Id
+            where sellerProduct.SellerId == seller.Id &&
+                  sellerProduct.IsActive &&
+                  product.Status == ProductStatus.Approved
+            select sellerProduct;
+
+        query = query
             .OrderBy(product => product.CreatedAtUtc);
 
         int totalCount = await query.CountAsync(cancellationToken);
@@ -436,9 +499,9 @@ internal static class SellerMapper
         CancellationToken cancellationToken)
     {
         CatalogProduct? product = await repository.GetAsync<CatalogProduct>(sellerProduct.ProductId);
-        if (product is null)
+        if (product is null || product.Status != ProductStatus.Approved)
         {
-            return Result.Failure<SellerProductResponse>(DropUz.Modules.Catalog.Application.CatalogErrors.ProductNotFound);
+            return Result.Failure<SellerProductResponse>(SellerErrors.CatalogProductNotAvailable);
         }
 
         Result<SellerPriceQuote> quote = await sellerPricingService.CalculateSellerPriceAsync(

@@ -15,11 +15,11 @@ public sealed class SellersEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder sellers = app
-            .MapGroup("/api/sellers")
-            .WithTags("Sellers");
+        RouteGroupBuilder sellers = app.MapGroup("/api/sellers");
 
         sellers.MapGet("/status", () => Results.Ok(new { module = "sellers", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetSellersStatus");
 
         sellers.MapPost("/shop", async (
@@ -28,11 +28,13 @@ public sealed class SellersEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new CreateSellerShopCommand(request.ShopName, request.Slug), cancellationToken))
                 .ToHttpResult())
+            .WithTags("Seller: Shop")
             .RequireSeller()
             .WithName("CreateSellerShop");
 
         sellers.MapGet("/shop/me", async (ISender sender, CancellationToken cancellationToken) =>
             (await sender.Send(new GetMySellerProfileQuery(), cancellationToken)).ToHttpResult())
+            .WithTags("Seller: Shop")
             .RequireSeller()
             .WithName("GetMySellerShop");
 
@@ -42,6 +44,7 @@ public sealed class SellersEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new SetSellerGlobalMarkupCommand(request.Markup), cancellationToken))
                 .ToHttpResult())
+            .WithTags("Seller: Shop")
             .RequireSeller()
             .WithName("SetSellerGlobalMarkup");
 
@@ -50,6 +53,7 @@ public sealed class SellersEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new AddSellerProductCommand(request.ProductId), cancellationToken)).ToHttpResult())
+            .WithTags("Seller: Products")
             .RequireSeller()
             .WithName("AddSellerProduct");
 
@@ -60,11 +64,22 @@ public sealed class SellersEndpoints : IEndpoint
             CancellationToken cancellationToken) =>
             (await sender.Send(new SetSellerProductMarkupCommand(sellerProductId, request.Markup), cancellationToken))
                 .ToHttpResult())
+            .WithTags("Seller: Products")
             .RequireSeller()
             .WithName("SetSellerProductMarkup");
 
+        sellers.MapDelete("/products/{sellerProductId:guid}", async (
+            Guid sellerProductId,
+            ISender sender,
+            CancellationToken cancellationToken) =>
+            (await sender.Send(new RemoveSellerProductCommand(sellerProductId), cancellationToken)).ToHttpResult())
+            .WithTags("Seller: Products")
+            .RequireSeller()
+            .WithName("RemoveSellerProduct");
+
         sellers.MapGet("/balance", async (ISender sender, CancellationToken cancellationToken) =>
             (await sender.Send(new GetSellerBalanceQuery(SellerId: null), cancellationToken)).ToHttpResult())
+            .WithTags("Seller: Balance")
             .RequireSeller()
             .WithName("GetSellerBalance");
 
@@ -80,12 +95,12 @@ public sealed class SellersEndpoints : IEndpoint
                         new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
                     cancellationToken))
                 .ToHttpResult())
-            .WithTags("Seller Shops")
+            .WithTags("Public: Seller Shops")
             .WithName("GetSellerShopProducts");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin/sellers")
-            .WithTags("Admin Sellers")
+            .WithTags("Admin: Sellers")
             .RequireAdmin();
 
         admin.MapGet("/balances", async (

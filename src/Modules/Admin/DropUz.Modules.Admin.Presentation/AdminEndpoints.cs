@@ -17,17 +17,18 @@ public sealed class AdminEndpoints : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("/api/admin/status", () => Results.Ok(new { module = "admin", status = "ok" }))
-            .WithTags("Admin")
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetAdminStatus");
 
         app.MapGet("/api/support/telegram", async (ISender sender, CancellationToken cancellationToken) =>
             (await sender.Send(new GetSupportTelegramUrlQuery(), cancellationToken)).ToHttpResult())
-            .WithTags("Support")
+            .WithTags("Public: Support")
             .WithName("GetSupportTelegramUrl");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin")
-            .WithTags("Admin")
+            .WithTags("Admin: Dashboard")
             .RequireAdmin();
 
         admin.MapGet("/dashboard", async (ISender sender, CancellationToken cancellationToken) =>
@@ -54,7 +55,7 @@ public sealed class AdminEndpoints : IEndpoint
 
         RouteGroupBuilder adminSettings = app
             .MapGroup("/api/admin/settings")
-            .WithTags("Admin Settings")
+            .WithTags("Admin: Settings")
             .RequireAdmin();
 
         adminSettings.MapGet("/support-telegram-url", async (ISender sender, CancellationToken cancellationToken) =>

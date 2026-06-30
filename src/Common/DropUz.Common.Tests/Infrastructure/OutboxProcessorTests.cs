@@ -1,3 +1,4 @@
+using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.EventBus;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Domain;
@@ -93,6 +94,37 @@ public sealed class OutboxProcessorTests
         Assert.Contains("No handlers registered", message.Error);
     }
 
+    [Fact]
+    public async Task ProcessorDoesNotPersistChangesFromFailedHandlerScope()
+    {
+        string databaseName = Guid.NewGuid().ToString();
+        var services = new ServiceCollection();
+        services.AddDbContext<MainDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        services.AddSingleton<IMainDbContextModelContributor, CommonTestModelContributor>();
+        services.AddSingleton<IDateTimeProvider>(
+            new TestDateTimeProvider(new DateTime(2026, 06, 27, 18, 0, 0, DateTimeKind.Utc)));
+        services.AddSingleton<OutboxMessageTypeResolver>();
+        services.AddScoped<OutboxMessageDispatcher>();
+        services.AddScoped<OutboxMessageProcessor>();
+        services.AddScoped<IDomainEventHandler<TestOutboxDomainEvent>, MutatingThrowingDomainEventHandler>();
+        services.AddSingleton<Microsoft.Extensions.Logging.ILogger<OutboxMessageProcessor>>(
+            NullLogger<OutboxMessageProcessor>.Instance);
+        await using ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
+        await using AsyncServiceScope scope = provider.CreateAsyncScope();
+        MainDbContext context = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+        context.Set<OutboxMessage>().Add(
+            OutboxMessage.FromDomainEvent(new TestOutboxDomainEvent(Guid.NewGuid())));
+        await context.SaveChangesAsync();
+
+        int processedCount = await scope.ServiceProvider
+            .GetRequiredService<OutboxMessageProcessor>()
+            .ProcessPendingAsync(batchSize: 10, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        Assert.Equal(0, processedCount);
+        Assert.Empty(await context.Set<OutboxTestEntity>().ToListAsync());
+    }
+
     private static MainDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<MainDbContext>()
@@ -112,7 +144,9 @@ public sealed class OutboxProcessorTests
 
         return new OutboxMessageProcessor(
             context,
-            new OutboxMessageDispatcher(provider, new OutboxMessageTypeResolver()),
+            new OutboxMessageDispatcher(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                new OutboxMessageTypeResolver()),
             new TestDateTimeProvider(new DateTime(2026, 06, 26, 10, 0, 0, DateTimeKind.Utc)),
             NullLogger<OutboxMessageProcessor>.Instance);
     }
@@ -137,6 +171,16 @@ public sealed class OutboxProcessorTests
         public Task Handle(TestOutboxDomainEvent notification, CancellationToken cancellationToken)
         {
             throw new InvalidOperationException("boom");
+        }
+    }
+
+    private sealed class MutatingThrowingDomainEventHandler(MainDbContext context)
+        : IDomainEventHandler<TestOutboxDomainEvent>
+    {
+        public Task Handle(TestOutboxDomainEvent notification, CancellationToken cancellationToken)
+        {
+            context.Set<OutboxTestEntity>().Add(new OutboxTestEntity(Guid.NewGuid()));
+            throw new InvalidOperationException("boom after mutation");
         }
     }
 

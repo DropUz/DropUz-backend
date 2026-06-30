@@ -1,9 +1,8 @@
+using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Domain;
-using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Domain.Pricing;
-using DropUz.Modules.Notifications.Application.Notifications;
 using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Application.Orders;
 using DropUz.Modules.Orders.Domain.Orders;
@@ -15,26 +14,28 @@ namespace DropUz.Mvp.Tests.Orders;
 public sealed class AdminOrderStatusNotificationTests
 {
     [Fact]
-    public async Task AdminStatusUpdateEnqueuesOrderStatusChangedNotification()
+    public async Task AdminStatusUpdateRaisesEventWithoutDirectNotification()
     {
         DateTime nowUtc = new(2026, 06, 23, 13, 0, 0, DateTimeKind.Utc);
+        Guid adminUserId = Guid.NewGuid();
         Order order = CreateProductPaidOrder(userId: Guid.NewGuid(), paidAtUtc: nowUtc);
         var repository = new InMemoryMainRepository(order);
         var handler = new AdminUpdateOrderStatusCommandHandler(
             repository,
             new TestDateTimeProvider(nowUtc),
-            new NoOpAdminAuditService(),
-            new InMemoryNotificationService(repository, new TestDateTimeProvider(nowUtc)));
+            new TestCurrentUser(adminUserId));
 
         Result<OrderResponse> result = await handler.Handle(
             new AdminUpdateOrderStatusCommand(order.Id, OrderStatus.Purchasing, "Buying product"),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        NotificationMessage notification = Assert.Single(repository.Entities.OfType<NotificationMessage>());
-        Assert.Equal(order.UserId, notification.UserId);
-        Assert.Equal(order.Id, notification.OrderId);
-        Assert.Equal(NotificationType.OrderStatusChanged, notification.Type);
+        Assert.Empty(repository.Entities.OfType<NotificationMessage>());
+        OrderStatusChangedDomainEvent domainEvent = Assert.Single(
+            order.DomainEvents.OfType<OrderStatusChangedDomainEvent>());
+        Assert.Equal(adminUserId, domainEvent.ChangedByUserId);
+        Assert.Equal(OrderStatus.ProductPaid, domainEvent.PreviousStatus);
+        Assert.Equal(OrderStatus.Purchasing, domainEvent.NewStatus);
     }
 
     private static Order CreateProductPaidOrder(Guid userId, DateTime paidAtUtc)
@@ -77,40 +78,14 @@ public sealed class AdminOrderStatusNotificationTests
         public DateTimeOffset OffsetUtcNow => new(utcNow);
     }
 
-    private sealed class NoOpAdminAuditService : IAdminAuditService
+    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
     {
-        public Task RecordAsync(
-            string action,
-            string entityType,
-            Guid? entityId = null,
-            string? details = null,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-    }
+        public Guid? UserId { get; } = userId;
 
-    private sealed class InMemoryNotificationService(
-        IMainRepository repository,
-        IDateTimeProvider dateTimeProvider) : INotificationService
-    {
-        public async Task EnqueueAsync(
-            Guid userId,
-            Guid? orderId,
-            NotificationType type,
-            string subject,
-            string body,
-            CancellationToken cancellationToken = default)
-        {
-            await repository.AddAsync(NotificationMessage.Create(
-                userId,
-                orderId,
-                type,
-                NotificationChannel.Email,
-                userId.ToString(),
-                subject,
-                body,
-                dateTimeProvider.UtcNow));
-        }
+        public string? UserName => "admin";
+
+        public bool IsAuthenticated => true;
+
+        public IReadOnlyCollection<string> Roles => ["admin"];
     }
 }

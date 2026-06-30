@@ -13,7 +13,8 @@ namespace DropUz.Modules.Payments.Application.Payments;
 public sealed class StartPaymentCommandHandler(
     IMainRepository repository,
     ICurrentUser currentUser,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IPaymentProviderRegistry paymentProviderRegistry)
     : ICommandHandler<StartPaymentCommand, PaymentResponse>
 {
     public async Task<Result<PaymentResponse>> Handle(
@@ -29,6 +30,33 @@ public sealed class StartPaymentCommandHandler(
         if (order is null || order.UserId != currentUser.UserId.Value)
         {
             return Result.Failure<PaymentResponse>(PaymentErrors.OrderNotFound);
+        }
+
+        string? idempotencyKey = string.IsNullOrWhiteSpace(command.IdempotencyKey)
+            ? null
+            : command.IdempotencyKey.Trim();
+        if (idempotencyKey?.Length > 200)
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.IdempotencyKeyInvalid);
+        }
+
+        if (idempotencyKey is not null)
+        {
+            Payment? idempotentPayment = await repository
+                .Query<Payment>(payment =>
+                    payment.UserId == order.UserId && payment.IdempotencyKey == idempotencyKey)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (idempotentPayment is not null)
+            {
+                bool sameRequest = idempotentPayment.OrderId == order.Id &&
+                                   idempotentPayment.Type == command.Type &&
+                                   idempotentPayment.Method == command.Method;
+
+                return sameRequest
+                    ? Result.Success(PaymentMapper.Map(idempotentPayment))
+                    : Result.Failure<PaymentResponse>(PaymentErrors.IdempotencyKeyConflict);
+            }
         }
 
         decimal amount = command.Type switch
@@ -60,13 +88,37 @@ public sealed class StartPaymentCommandHandler(
             return Result.Success(PaymentMapper.Map(existingPendingPayment));
         }
 
+        IPaymentProvider? paymentProvider = paymentProviderRegistry.FindForMethod(command.Method);
+        if (paymentProvider is null)
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.ProviderUnavailable);
+        }
+
+        PaymentProviderResult providerResult = await paymentProvider.StartAsync(
+            new StartPaymentProviderRequest(
+                order.Id,
+                order.UserId,
+                command.Type,
+                command.Method,
+                amount,
+                idempotencyKey),
+            cancellationToken);
+
+        if (!providerResult.IsSuccess || string.IsNullOrWhiteSpace(providerResult.ProviderTransactionId))
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.ProviderRejected);
+        }
+
         Payment payment = Payment.Start(
             order.Id,
             order.UserId,
             command.Type,
             command.Method,
             amount,
-            dateTimeProvider.UtcNow);
+            paymentProvider.Name,
+            providerResult.ProviderTransactionId,
+            dateTimeProvider.UtcNow,
+            idempotencyKey);
 
         await repository.AddAsync(payment);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
@@ -78,7 +130,8 @@ public sealed class StartPaymentCommandHandler(
 public sealed class ConfirmPaymentCommandHandler(
     IMainRepository repository,
     ICurrentUser currentUser,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IPaymentProviderRegistry paymentProviderRegistry)
     : ICommandHandler<ConfirmPaymentCommand, PaymentResponse>
 {
     public async Task<Result<PaymentResponse>> Handle(
@@ -121,7 +174,30 @@ public sealed class ConfirmPaymentCommandHandler(
             return Result.Failure<PaymentResponse>(PaymentErrors.PaymentNotAllowed);
         }
 
-        payment.MarkPaid(command.ProviderTransactionId, nowUtc);
+        IPaymentProvider? paymentProvider = paymentProviderRegistry.FindByName(payment.Provider);
+        if (paymentProvider is null)
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.ProviderUnavailable);
+        }
+
+        PaymentProviderResult providerResult = await paymentProvider.ConfirmAsync(
+            new ConfirmPaymentProviderRequest(
+                payment.Id,
+                payment.OrderId,
+                payment.UserId,
+                payment.Type,
+                payment.Method,
+                payment.Amount,
+                payment.ProviderTransactionId,
+                command.ProviderTransactionId),
+            cancellationToken);
+
+        if (!providerResult.IsSuccess || string.IsNullOrWhiteSpace(providerResult.ProviderTransactionId))
+        {
+            return Result.Failure<PaymentResponse>(PaymentErrors.ProviderRejected);
+        }
+
+        payment.MarkPaid(providerResult.ProviderTransactionId, nowUtc);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(PaymentMapper.Map(payment));
@@ -196,7 +272,8 @@ internal static class PaymentMapper
             payment.ProviderTransactionId,
             payment.Status,
             payment.CreatedAtUtc,
-            payment.PaidAtUtc);
+            payment.PaidAtUtc,
+            payment.IdempotencyKey);
     }
 
     internal static async Task<Result<PagedResponse<PaymentResponse>>> ToPagedResponseAsync(

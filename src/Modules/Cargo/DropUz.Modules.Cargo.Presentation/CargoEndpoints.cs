@@ -13,16 +13,16 @@ public sealed class CargoEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder cargo = app
-            .MapGroup("/api/cargo")
-            .WithTags("Cargo");
+        RouteGroupBuilder cargo = app.MapGroup("/api/cargo");
 
         cargo.MapGet("/status", () => Results.Ok(new { module = "cargo", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetCargoStatus");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin/cargo")
-            .WithTags("Admin Cargo")
+            .WithTags("Admin: Cargo")
             .RequireAdmin();
 
         admin.MapGet("/settings", async (ISender sender, CancellationToken cancellationToken) =>

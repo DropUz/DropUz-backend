@@ -28,7 +28,23 @@ public static class CatalogErrors
         "Catalog.ProductNotFound",
         "Product was not found.");
 
+    public static readonly Error ProductStatusChangeInvalid = Error.Validation(
+        "Catalog.ProductStatusChangeInvalid",
+        "The requested product status change is not allowed.");
+
     public static readonly Error CategoryNotFound = Error.NotFound(
         "Catalog.CategoryNotFound",
         "Category was not found.");
+
+    public static readonly Error CategorySlugConflict = Error.Conflict(
+        "Catalog.CategorySlugConflict",
+        "Another category already uses this slug.");
+
+    public static readonly Error CategoryInUse = Error.Conflict(
+        "Catalog.CategoryInUse",
+        "Category cannot be deleted while products reference it.");
+
+    public static readonly Error ImportProviderUnavailable = Error.Failure(
+        "Catalog.ImportProviderUnavailable",
+        "No catalog import provider is available for this source platform.");
 }

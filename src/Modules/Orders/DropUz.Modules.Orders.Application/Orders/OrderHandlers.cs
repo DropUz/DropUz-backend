@@ -11,8 +11,6 @@ using DropUz.Modules.Cargo.Domain.Cargo;
 using DropUz.Modules.Catalog.Application.Products;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Sellers.Application.Sellers;
 using DropUz.Modules.Sellers.Domain.Sellers;
@@ -154,7 +152,6 @@ public sealed class CreateOrderFromCartCommandHandler(
 public sealed class AdminSetCargoPriceCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    INotificationService notificationService,
     IAdminAuditService auditService)
     : ICommandHandler<AdminSetCargoPriceCommand, OrderResponse>
 {
@@ -188,14 +185,6 @@ public sealed class AdminSetCargoPriceCommandHandler(
             nowUtc);
 
         await repository.AddAsync(cargoPriceRecord);
-        await notificationService.EnqueueAsync(
-            order.UserId,
-            order.Id,
-            NotificationType.CargoPriceAdded,
-            "Cargo price added",
-            $"Cargo price for order {order.Id} is {command.CargoPrice}.",
-            cancellationToken);
-
         await auditService.RecordAsync(
             AdminAuditActions.Orders.CargoPriceSet,
             entityType: "Order",
@@ -222,8 +211,7 @@ public sealed class AdminSetCargoPriceCommandHandler(
 public sealed class AdminUpdateOrderStatusCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    IAdminAuditService auditService,
-    INotificationService notificationService)
+    ICurrentUser currentUser)
     : ICommandHandler<AdminUpdateOrderStatusCommand, OrderResponse>
 {
     public async Task<Result<OrderResponse>> Handle(
@@ -237,44 +225,15 @@ public sealed class AdminUpdateOrderStatusCommandHandler(
         }
 
         OrderStatus previousStatus = order.Status;
-        bool statusChanged = order.UpdateStatus(command.Status, command.Note, dateTimeProvider.UtcNow);
+        bool statusChanged = order.UpdateStatus(
+            command.Status,
+            command.Note,
+            dateTimeProvider.UtcNow,
+            currentUser.UserId);
 
         if (!statusChanged && previousStatus != command.Status)
         {
             return Result.Failure<OrderResponse>(OrderErrors.InvalidStatusTransition);
-        }
-
-        if (statusChanged &&
-            order.SellerId.HasValue &&
-            command.Status is OrderStatus.Cancelled or OrderStatus.Refunded)
-        {
-            SellerProfile? seller = await SellerBalanceLoader.GetSellerWithBalanceTransactionsAsync(
-                repository,
-                order.SellerId.Value,
-                cancellationToken);
-
-            if (seller is not null)
-            {
-                seller.ReversePendingProfit(order.Id, order.SellerProfitTotal, "Order is not payable to seller.", dateTimeProvider.UtcNow);
-            }
-        }
-
-        if (statusChanged)
-        {
-            await auditService.RecordAsync(
-                AdminAuditActions.Orders.StatusUpdated,
-                entityType: "Order",
-                entityId: order.Id,
-                details: $"from={previousStatus};to={order.Status};note={command.Note}",
-                cancellationToken: cancellationToken);
-
-            await notificationService.EnqueueAsync(
-                order.UserId,
-                order.Id,
-                NotificationType.OrderStatusChanged,
-                "Order status updated",
-                $"Order {order.OrderNumber} status changed to {order.Status}.",
-                cancellationToken);
         }
 
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);

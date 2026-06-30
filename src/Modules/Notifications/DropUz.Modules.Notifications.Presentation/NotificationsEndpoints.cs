@@ -14,11 +14,11 @@ public sealed class NotificationsEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder notifications = app
-            .MapGroup("/api/notifications")
-            .WithTags("Notifications");
+        RouteGroupBuilder notifications = app.MapGroup("/api/notifications");
 
         notifications.MapGet("/status", () => Results.Ok(new { module = "notifications", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetNotificationsStatus");
 
         notifications.MapPost("/telegram/link", async (
@@ -26,6 +26,7 @@ public sealed class NotificationsEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new LinkTelegramCommand(request.ChatId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Profile")
             .RequireUser()
             .WithName("LinkTelegram");
 
@@ -38,12 +39,13 @@ public sealed class NotificationsEndpoints : IEndpoint
                     new GetMyNotificationsQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
                     cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Profile")
             .RequireUser()
             .WithName("GetMyNotifications");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin/notifications")
-            .WithTags("Admin Notifications")
+            .WithTags("Admin: Settings")
             .RequireAdmin();
 
         admin.MapGet("/", async (

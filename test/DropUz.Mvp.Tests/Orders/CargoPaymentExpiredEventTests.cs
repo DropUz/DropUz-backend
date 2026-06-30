@@ -1,12 +1,13 @@
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Domain;
 using DropUz.Modules.Admin.Application.Audit;
 using DropUz.Modules.Catalog.Domain.Pricing;
-using DropUz.Modules.Notifications.Application.Notifications;
 using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Application.Orders;
 using DropUz.Modules.Orders.Domain.Orders;
+using DropUz.Modules.Orders.IntegrationEvents;
 using DropUz.Modules.Sellers.Domain.Sellers;
 using DropUz.Mvp.Tests.Support;
 using Xunit;
@@ -61,7 +62,7 @@ public sealed class CargoPaymentExpiredEventTests
     }
 
     [Fact]
-    public async Task CargoPaymentExpiredHandlerReversesSellerProfitAndCreatesNotification()
+    public async Task DomainHandlerPublishesCargoPaymentExpiredIntegrationEventWithoutDirectSideEffects()
     {
         DateTime nowUtc = new(2026, 06, 27, 12, 0, 0, DateTimeKind.Utc);
         SellerProfile seller = SellerProfile.Create(Guid.NewGuid(), "Drop seller", "drop-seller", nowUtc.AddDays(-3));
@@ -69,37 +70,8 @@ public sealed class CargoPaymentExpiredEventTests
         seller.RecordProductPayment(order.Id, order.SellerProfitTotal, nowUtc.AddDays(-1));
         order.ExpireCargoPayment(nowUtc);
         var repository = new InMemoryMainRepository(order, seller);
-        var notificationService = new InMemoryNotificationService(repository, new TestDateTimeProvider(nowUtc));
-        var handler = new CargoPaymentExpiredDomainEventHandler(repository, notificationService);
-
-        await handler.Handle(
-            new CargoPaymentExpiredDomainEvent(
-                order.Id,
-                order.UserId,
-                seller.Id,
-                order.SellerProfitTotal,
-                nowUtc),
-            CancellationToken.None);
-
-        Assert.Equal(0m, seller.PendingBalance);
-        Assert.Equal(0m, seller.TotalEarned);
-        NotificationMessage notification = Assert.Single(repository.Entities.OfType<NotificationMessage>());
-        Assert.Equal(order.UserId, notification.UserId);
-        Assert.Equal(order.Id, notification.OrderId);
-        Assert.Equal(NotificationType.CargoExpired, notification.Type);
-    }
-
-    [Fact]
-    public async Task CargoPaymentExpiredHandlerIsIdempotent()
-    {
-        DateTime nowUtc = new(2026, 06, 27, 12, 0, 0, DateTimeKind.Utc);
-        SellerProfile seller = SellerProfile.Create(Guid.NewGuid(), "Drop seller", "drop-seller", nowUtc.AddDays(-3));
-        Order order = CreatePendingCargoPaymentOrder(Guid.NewGuid(), seller.Id, nowUtc.AddDays(-2));
-        seller.RecordProductPayment(order.Id, order.SellerProfitTotal, nowUtc.AddDays(-1));
-        order.ExpireCargoPayment(nowUtc);
-        var repository = new InMemoryMainRepository(order, seller);
-        var notificationService = new InMemoryNotificationService(repository, new TestDateTimeProvider(nowUtc));
-        var handler = new CargoPaymentExpiredDomainEventHandler(repository, notificationService);
+        var publisher = new CapturingIntegrationEventPublisher();
+        var handler = new CargoPaymentExpiredDomainEventHandler(repository, publisher);
         var domainEvent = new CargoPaymentExpiredDomainEvent(
             order.Id,
             order.UserId,
@@ -108,12 +80,22 @@ public sealed class CargoPaymentExpiredEventTests
             nowUtc);
 
         await handler.Handle(domainEvent, CancellationToken.None);
-        await handler.Handle(domainEvent, CancellationToken.None);
 
-        Assert.Equal(0m, seller.PendingBalance);
-        Assert.Equal(0m, seller.TotalEarned);
-        Assert.Equal(2, seller.BalanceTransactions.Count);
-        Assert.Single(repository.Entities.OfType<NotificationMessage>());
+        CargoPaymentExpiredIntegrationEvent integrationEvent = Assert.IsType<CargoPaymentExpiredIntegrationEvent>(
+            Assert.Single(publisher.PublishedEvents));
+        Assert.Equal(
+            IntegrationEventId.Create<CargoPaymentExpiredIntegrationEvent>(domainEvent.Id),
+            integrationEvent.Id);
+        Assert.Equal(domainEvent.Id, integrationEvent.SourceEventId);
+        Assert.Equal(order.Id, integrationEvent.OrderId);
+        Assert.Equal(order.UserId, integrationEvent.UserId);
+        Assert.Equal(order.OrderNumber, integrationEvent.OrderNumber);
+        Assert.Equal(seller.Id, integrationEvent.SellerId);
+        Assert.Equal(order.SellerProfitTotal, integrationEvent.SellerProfitTotal);
+        Assert.Equal(nowUtc, integrationEvent.ExpiredAtUtc);
+        Assert.Equal(order.SellerProfitTotal, seller.PendingBalance);
+        Assert.Equal(order.SellerProfitTotal, seller.TotalEarned);
+        Assert.Empty(repository.Entities.OfType<NotificationMessage>());
     }
 
     private static Order CreatePendingCargoPaymentOrder(Guid buyerId, Guid sellerId, DateTime createdAtUtc)
@@ -170,27 +152,16 @@ public sealed class CargoPaymentExpiredEventTests
         }
     }
 
-    private sealed class InMemoryNotificationService(
-        IMainRepository repository,
-        IDateTimeProvider dateTimeProvider) : INotificationService
+    private sealed class CapturingIntegrationEventPublisher : IIntegrationEventPublisher
     {
-        public async Task EnqueueAsync(
-            Guid userId,
-            Guid? orderId,
-            NotificationType type,
-            string subject,
-            string body,
+        public List<IIntegrationEvent> PublishedEvents { get; } = [];
+
+        public Task PublishAsync(
+            IIntegrationEvent integrationEvent,
             CancellationToken cancellationToken = default)
         {
-            await repository.AddAsync(NotificationMessage.Create(
-                userId,
-                orderId,
-                type,
-                NotificationChannel.Email,
-                userId.ToString(),
-                subject,
-                body,
-                dateTimeProvider.UtcNow));
+            PublishedEvents.Add(integrationEvent);
+            return Task.CompletedTask;
         }
     }
 }

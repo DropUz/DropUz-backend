@@ -25,8 +25,11 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
             modelBuilder.Entity("DropUz.Common.Infrastructure.Inbox.InboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ConsumerName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
 
                     b.Property<string>("Content")
                         .IsRequired()
@@ -55,7 +58,7 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id", "ConsumerName");
 
                     b.HasIndex("ProcessedOnUtc");
 
@@ -306,6 +309,61 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                     b.ToTable("categories", "catalog");
                 });
 
+            modelBuilder.Entity("DropUz.Modules.Catalog.Domain.Imports.CatalogImportLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CatalogProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("Operation")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProviderName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourcePlatform")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SourceProductId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CatalogProductId");
+
+                    b.HasIndex("Status", "CompletedAtUtc");
+
+                    b.HasIndex("SourcePlatform", "SourceProductId", "CompletedAtUtc");
+
+                    b.ToTable("import_logs", "catalog");
+                });
+
             modelBuilder.Entity("DropUz.Modules.Catalog.Domain.Pricing.CatalogPricingSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -412,6 +470,9 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Body")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -427,8 +488,19 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("OrderId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ProviderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Recipient")
                         .IsRequired()
@@ -461,6 +533,8 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                     b.HasIndex("Status");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("Status", "CreatedAtUtc");
 
                     b.ToTable("messages", "notifications");
                 });
@@ -707,6 +781,10 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<int>("Method")
                         .HasColumnType("integer");
 
@@ -747,6 +825,14 @@ namespace DropUz.Common.Infrastructure.Data.Migrations
                     b.HasIndex("Status");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex("OrderId", "UserId", "Type")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 1");
 
                     b.ToTable("payments", "payments");
                 });

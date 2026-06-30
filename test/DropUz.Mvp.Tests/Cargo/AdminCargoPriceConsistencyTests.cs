@@ -20,7 +20,7 @@ namespace DropUz.Mvp.Tests.Cargo;
 public sealed class AdminCargoPriceConsistencyTests
 {
     [Fact]
-    public async Task AdminOrderCargoPriceEntryRecordsCargoPriceAndNotification()
+    public async Task AdminOrderCargoPriceEntryRecordsPriceAndRaisesEventWithoutDirectNotification()
     {
         DateTime nowUtc = new(2026, 06, 23, 10, 0, 0, DateTimeKind.Utc);
         Order order = CreateProductPaidOrder(userId: Guid.NewGuid(), paidAtUtc: nowUtc);
@@ -34,13 +34,14 @@ public sealed class AdminCargoPriceConsistencyTests
 
         Assert.True(result.IsSuccess);
         CargoPriceRecord record = Assert.Single(repository.Entities.OfType<CargoPriceRecord>());
-        NotificationMessage notification = Assert.Single(
-            repository.Entities.OfType<NotificationMessage>(),
-            x => x.OrderId == order.Id && x.Type == NotificationType.CargoPriceAdded);
+        CargoPriceAddedDomainEvent domainEvent = Assert.Single(
+            order.DomainEvents.OfType<CargoPriceAddedDomainEvent>());
 
         Assert.Equal(22m, record.Amount);
         Assert.Equal(nowUtc.AddDays(5), record.DeadlineAtUtc);
-        Assert.Equal(order.UserId, notification.UserId);
+        Assert.Equal(order.UserId, domainEvent.UserId);
+        Assert.Equal(22m, domainEvent.CargoPrice);
+        Assert.Empty(repository.Entities.OfType<NotificationMessage>());
     }
 
     [Fact]

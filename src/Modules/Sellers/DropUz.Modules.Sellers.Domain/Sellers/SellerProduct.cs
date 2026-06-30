@@ -54,4 +54,10 @@ public sealed class SellerProduct : Entity
         IsActive = false;
         UpdatedAtUtc = nowUtc;
     }
+
+    public void Activate(DateTime nowUtc)
+    {
+        IsActive = true;
+        UpdatedAtUtc = nowUtc;
+    }
 }

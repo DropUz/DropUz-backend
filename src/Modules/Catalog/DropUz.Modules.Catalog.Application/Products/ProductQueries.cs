@@ -7,6 +7,8 @@ public sealed record GetCatalogProductsQuery(
     string? Search,
     Guid? CategoryId,
     bool ApprovedOnly,
-    PageRequest Page) : IQuery<PagedResponse<CatalogProductResponse>>;
+    PageRequest Page,
+    CatalogProductSort Sort = CatalogProductSort.NameAscending)
+    : IQuery<PagedResponse<CatalogProductResponse>>;
 
 public sealed record GetCatalogProductQuery(Guid ProductId) : IQuery<CatalogProductResponse>;

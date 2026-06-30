@@ -1,1 +1,9 @@
-{}
+{
+  "Notifications": {
+    "Delivery": {
+      "Enabled": true,
+      "BatchSize": 20,
+      "PollIntervalSeconds": 15
+    }
+  }
+}

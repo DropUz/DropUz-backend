@@ -15,4 +15,8 @@ public static class NotificationErrors
     public static readonly Error TelegramChatIdRequired = Error.Validation(
         "Notifications.TelegramChatIdRequired",
         "Telegram chat id is required.");
+
+    public static readonly Error NotificationRetryInvalid = Error.Conflict(
+        "Notifications.NotificationRetryInvalid",
+        "Only failed notifications can be retried.");
 }

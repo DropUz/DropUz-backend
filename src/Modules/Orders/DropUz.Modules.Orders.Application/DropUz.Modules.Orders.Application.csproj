@@ -8,11 +8,11 @@
     <ProjectReference Include="..\..\Cargo\DropUz.Modules.Cargo.Domain\DropUz.Modules.Cargo.Domain.csproj" />
     <ProjectReference Include="..\..\Catalog\DropUz.Modules.Catalog.Application\DropUz.Modules.Catalog.Application.csproj" />
     <ProjectReference Include="..\..\Catalog\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
-    <ProjectReference Include="..\..\Notifications\DropUz.Modules.Notifications.Application\DropUz.Modules.Notifications.Application.csproj" />
-    <ProjectReference Include="..\..\Notifications\DropUz.Modules.Notifications.Domain\DropUz.Modules.Notifications.Domain.csproj" />
+    <ProjectReference Include="..\..\Payments\DropUz.Modules.Payments.IntegrationEvents\DropUz.Modules.Payments.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\Sellers\DropUz.Modules.Sellers.Application\DropUz.Modules.Sellers.Application.csproj" />
     <ProjectReference Include="..\..\Sellers\DropUz.Modules.Sellers.Domain\DropUz.Modules.Sellers.Domain.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Orders.Domain\DropUz.Modules.Orders.Domain.csproj" />
+    <ProjectReference Include="..\DropUz.Modules.Orders.IntegrationEvents\DropUz.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

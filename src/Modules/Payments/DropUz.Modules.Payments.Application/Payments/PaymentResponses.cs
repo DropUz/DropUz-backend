@@ -13,4 +13,5 @@ public sealed record PaymentResponse(
     string ProviderTransactionId,
     PaymentStatus Status,
     DateTime CreatedAtUtc,
-    DateTime? PaidAtUtc);
+    DateTime? PaidAtUtc,
+    string? IdempotencyKey);

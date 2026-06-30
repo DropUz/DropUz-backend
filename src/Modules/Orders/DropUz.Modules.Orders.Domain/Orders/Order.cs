@@ -106,6 +106,12 @@ public sealed class Order : Entity
         Total = ProductTotal + CargoTotal;
         CargoPaymentDeadlineAt = nowUtc.AddDays(deadlineDays <= 0 ? 7 : deadlineDays);
         ChangeStatus(OrderStatus.PendingCargoPayment, "Cargo price added.", nowUtc);
+        RaiseDomainEvent(new CargoPriceAddedDomainEvent(
+            Id,
+            UserId,
+            cargoPrice,
+            CargoPaymentDeadlineAt.Value,
+            nowUtc));
 
         return true;
     }
@@ -123,14 +129,31 @@ public sealed class Order : Entity
         return true;
     }
 
-    public bool UpdateStatus(OrderStatus status, string? note, DateTime nowUtc)
+    public bool UpdateStatus(
+        OrderStatus status,
+        string? note,
+        DateTime nowUtc,
+        Guid? changedByUserId = null)
     {
         if (!CanUpdateStatus(status))
         {
             return false;
         }
 
+        OrderStatus previousStatus = Status;
         ChangeStatus(status, note, nowUtc);
+        RaiseDomainEvent(new OrderStatusChangedDomainEvent(
+            Id,
+            UserId,
+            SellerId,
+            OrderNumber,
+            SellerProfitTotal,
+            previousStatus,
+            status,
+            note,
+            changedByUserId,
+            nowUtc));
+
         if (status == OrderStatus.Delivered && SellerId.HasValue)
         {
             RaiseDomainEvent(new OrderDeliveredDomainEvent(

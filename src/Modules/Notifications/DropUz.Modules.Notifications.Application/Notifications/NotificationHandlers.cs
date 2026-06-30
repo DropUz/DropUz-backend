@@ -103,7 +103,10 @@ public sealed class RetryNotificationCommandHandler(
             return Result.Failure<NotificationResponse>(NotificationErrors.NotificationNotFound);
         }
 
-        message.Retry();
+        if (!message.Retry())
+        {
+            return Result.Failure<NotificationResponse>(NotificationErrors.NotificationRetryInvalid);
+        }
         await auditService.RecordAsync(
             AdminAuditActions.Notifications.RetryRequested,
             entityType: "NotificationMessage",
@@ -169,7 +172,11 @@ internal static class NotificationMapper
             message.Status,
             message.CreatedAtUtc,
             message.SentAtUtc,
-            message.FailureReason);
+            message.FailureReason,
+            message.AttemptCount,
+            message.LastAttemptAtUtc,
+            message.ProviderName,
+            message.ProviderMessageId);
     }
 
     internal static async Task<Result<PagedResponse<NotificationResponse>>> ToPagedResponseAsync(

@@ -41,6 +41,38 @@ public sealed class CatalogProductPaginationTests
         Assert.Equal(["Product 3", "Product 4"], result.Value.Items.Select(x => x.Name));
     }
 
+    [Theory]
+    [InlineData(CatalogProductSort.NameDescending, "Product 3", "Product 2", "Product 1")]
+    [InlineData(CatalogProductSort.Newest, "Product 3", "Product 2", "Product 1")]
+    public async Task CatalogProductListAppliesRequestedSort(
+        CatalogProductSort sort,
+        string first,
+        string second,
+        string third)
+    {
+        DateTime nowUtc = new(2026, 06, 30, 12, 0, 0, DateTimeKind.Utc);
+        CatalogProduct[] products =
+        [
+            CreateApprovedProduct("Product 1", nowUtc.AddMinutes(-3)),
+            CreateApprovedProduct("Product 2", nowUtc.AddMinutes(-2)),
+            CreateApprovedProduct("Product 3", nowUtc.AddMinutes(-1))
+        ];
+        var handler = new GetCatalogProductsQueryHandler(
+            new InMemoryMainRepository(products.Cast<object>().ToArray()));
+
+        Result<PagedResponse<CatalogProductResponse>> result = await handler.Handle(
+            new GetCatalogProductsQuery(
+                Search: null,
+                CategoryId: null,
+                ApprovedOnly: true,
+                Page: new PageRequest(1, 20),
+                Sort: sort),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([first, second, third], result.Value.Items.Select(item => item.Name));
+    }
+
     private static CatalogProduct CreateApprovedProduct(string name, DateTime nowUtc)
     {
         CatalogProduct product = CatalogProduct.Import(

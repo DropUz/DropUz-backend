@@ -1,17 +1,15 @@
 using DropUz.Common.Application.Data;
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Application.Messaging;
-using DropUz.Modules.Notifications.Application.Notifications;
-using DropUz.Modules.Notifications.Domain.Notifications;
 using DropUz.Modules.Orders.Domain.Orders;
 using DropUz.Modules.Payments.Domain.Payments;
-using DropUz.Modules.Sellers.Domain.Sellers;
-using Microsoft.EntityFrameworkCore;
+using DropUz.Modules.Payments.IntegrationEvents;
 
 namespace DropUz.Modules.Payments.Application.Payments;
 
 public sealed class ProductPaymentCompletedDomainEventHandler(
     IMainRepository repository,
-    INotificationService notificationService)
+    IIntegrationEventPublisher integrationEventPublisher)
     : IDomainEventHandler<ProductPaymentCompletedDomainEvent>
 {
     public async Task Handle(
@@ -21,32 +19,27 @@ public sealed class ProductPaymentCompletedDomainEventHandler(
         Order? order = await repository.GetAsync<Order>(domainEvent.OrderId);
         if (order is null || order.UserId != domainEvent.UserId || order.ProductTotal != domainEvent.Amount)
         {
-            return;
+            throw new InvalidOperationException(
+                $"Product payment '{domainEvent.PaymentId}' does not match order '{domainEvent.OrderId}'.");
         }
 
-        if (!order.MarkProductPaid(domainEvent.PaidAtUtc))
+        var integrationEvent = new ProductPaymentCompletedIntegrationEvent(
+            domainEvent.Id,
+            domainEvent.PaymentId,
+            domainEvent.OrderId,
+            domainEvent.UserId,
+            domainEvent.Amount,
+            order.OrderNumber,
+            order.SellerId,
+            order.SellerProfitTotal,
+            domainEvent.PaidAtUtc,
+            domainEvent.ProviderTransactionId)
         {
-            return;
-        }
+            Id = IntegrationEventId.Create<ProductPaymentCompletedIntegrationEvent>(domainEvent.Id),
+            OccurredOnUtc = domainEvent.OccurredOnUtc
+        };
 
-        if (order.SellerId.HasValue)
-        {
-            SellerProfile? seller = await repository
-                .Query<SellerProfile>(sellerProfile => sellerProfile.Id == order.SellerId.Value)
-                .Include(sellerProfile => sellerProfile.BalanceTransactions)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            seller?.RecordProductPayment(order.Id, order.SellerProfitTotal, domainEvent.PaidAtUtc);
-        }
-
-        await notificationService.EnqueueAsync(
-            order.UserId,
-            order.Id,
-            NotificationType.PaymentReceived,
-            "Payment received",
-            $"Product payment for order {order.Id} was received.",
-            cancellationToken);
-
+        await integrationEventPublisher.PublishAsync(integrationEvent, cancellationToken);
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

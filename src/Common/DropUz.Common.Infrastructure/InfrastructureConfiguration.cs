@@ -1,6 +1,7 @@
 using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
+using DropUz.Common.Application.EventBus;
 using DropUz.Common.Infrastructure.Clock;
 using DropUz.Common.Infrastructure.Data;
 using DropUz.Common.Infrastructure.Identity;
@@ -30,6 +31,7 @@ public static class InfrastructureConfiguration
         services.TryAddSingleton<OutboxMessageTypeResolver>();
         services.TryAddScoped<OutboxMessageDispatcher>();
         services.TryAddScoped<OutboxMessageProcessor>();
+        services.TryAddScoped<IIntegrationEventPublisher, OutboxIntegrationEventPublisher>();
         services.AddOptions<OutboxProcessorOptions>();
         services.Configure<OutboxProcessorOptions>(configuration.GetSection(OutboxProcessorOptions.SectionName));
 
@@ -55,6 +57,8 @@ public static class InfrastructureConfiguration
         services.TryAddScoped<IMainRepository, MainRepository>();
         services.TryAddScoped<IDatabaseSchemaInitializer, DatabaseSchemaInitializer>();
         services.TryAddScoped<InboxMessageService>();
+        services.TryAddScoped<IIntegrationEventInbox>(serviceProvider =>
+            serviceProvider.GetRequiredService<InboxMessageService>());
         services.AddHostedService<OutboxMessageProcessorHostedService>();
 
         return services;

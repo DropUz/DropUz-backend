@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\..\Common\DropUz.Common.Application\DropUz.Common.Application.csproj" />
     <ProjectReference Include="..\..\Admin\DropUz.Modules.Admin.Application\DropUz.Modules.Admin.Application.csproj" />
     <ProjectReference Include="..\DropUz.Modules.Catalog.Domain\DropUz.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\DropUz.Modules.Catalog.IntegrationEvents\DropUz.Modules.Catalog.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

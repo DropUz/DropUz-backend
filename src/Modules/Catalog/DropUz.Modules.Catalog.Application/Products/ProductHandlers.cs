@@ -1,10 +1,13 @@
+using DropUz.Common.Application.Abstractions;
 using DropUz.Common.Application.Clock;
 using DropUz.Common.Application.Data;
 using DropUz.Common.Application.Messaging;
 using DropUz.Common.Application.Pagination;
 using DropUz.Common.Domain;
 using DropUz.Modules.Admin.Application.Audit;
+using DropUz.Modules.Catalog.Application.Imports;
 using DropUz.Modules.Catalog.Domain.Categories;
+using DropUz.Modules.Catalog.Domain.Imports;
 using DropUz.Modules.Catalog.Domain.Pricing;
 using DropUz.Modules.Catalog.Domain.Products;
 using Microsoft.EntityFrameworkCore;
@@ -53,7 +56,9 @@ public sealed class CatalogPricingService(IMainRepository repository) : ICatalog
 public sealed class ImportProductCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    IAdminAuditService auditService)
+    ICurrentUser currentUser,
+    IAdminAuditService auditService,
+    ICatalogImportProviderRegistry importProviderRegistry)
     : ICommandHandler<ImportProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -76,23 +81,18 @@ public sealed class ImportProductCommandHandler(
             return Result.Failure<CatalogProductResponse>(CatalogErrors.ApiPriceInvalid);
         }
 
-        if (command.CategoryId.HasValue &&
-            !await repository.Query<Category>(category => category.Id == command.CategoryId.Value).AnyAsync(cancellationToken))
+        ICatalogImportProvider? importProvider = importProviderRegistry.GetProvider(command.SourcePlatform);
+        if (importProvider is null)
         {
-            return Result.Failure<CatalogProductResponse>(CatalogErrors.CategoryNotFound);
+            return await FailImportAsync(
+                command,
+                providerName: "unavailable",
+                CatalogErrors.ImportProviderUnavailable,
+                cancellationToken);
         }
 
-        CatalogProduct? existingProduct = await repository
-            .Query<CatalogProduct>(x =>
-                x.SourcePlatform == command.SourcePlatform.Trim() &&
-                x.SourceProductId == command.SourceProductId.Trim())
-            .FirstOrDefaultAsync(cancellationToken);
-
-        bool isNewProduct = existingProduct is null;
-        CatalogProduct product;
-        if (isNewProduct)
-        {
-            product = CatalogProduct.Import(
+        Result<CatalogImportProductData> providerResult = await importProvider.ImportAsync(
+            new CatalogImportProviderRequest(
                 command.CategoryId,
                 command.Name,
                 command.Description,
@@ -102,8 +102,59 @@ public sealed class ImportProductCommandHandler(
                 command.SourceUrl,
                 command.ApiPrice,
                 command.CurrencyCode,
-                command.CurrencyRate,
-                dateTimeProvider.UtcNow);
+                command.CurrencyRate),
+            cancellationToken);
+
+        if (providerResult.IsFailure)
+        {
+            return await FailImportAsync(
+                command,
+                importProvider.Name,
+                providerResult.Error,
+                cancellationToken);
+        }
+
+        CatalogImportProductData importData = providerResult.Value;
+        Error? dataError = ValidateImportData(importData);
+        if (dataError is not null)
+        {
+            return await FailImportAsync(command, importProvider.Name, dataError, cancellationToken);
+        }
+
+        if (importData.CategoryId.HasValue &&
+            !await repository.Query<Category>(category => category.Id == importData.CategoryId.Value)
+                .AnyAsync(cancellationToken))
+        {
+            return await FailImportAsync(
+                command,
+                importProvider.Name,
+                CatalogErrors.CategoryNotFound,
+                cancellationToken);
+        }
+
+        CatalogProduct? existingProduct = await repository
+            .Query<CatalogProduct>(x =>
+                x.SourcePlatform == importData.SourcePlatform.Trim() &&
+                x.SourceProductId == importData.SourceProductId.Trim())
+            .FirstOrDefaultAsync(cancellationToken);
+
+        bool isNewProduct = existingProduct is null;
+        CatalogProduct product;
+        if (isNewProduct)
+        {
+            product = CatalogProduct.Import(
+                importData.CategoryId,
+                importData.Name,
+                importData.Description,
+                importData.ImageUrl,
+                importData.SourcePlatform,
+                importData.SourceProductId,
+                importData.SourceUrl,
+                importData.ApiPrice,
+                importData.CurrencyCode,
+                importData.CurrencyRate,
+                dateTimeProvider.UtcNow,
+                currentUser.UserId);
 
             await repository.AddAsync(product);
         }
@@ -111,34 +162,80 @@ public sealed class ImportProductCommandHandler(
         {
             product = existingProduct!;
             product.UpdateImportData(
-                command.CategoryId,
-                command.Name,
-                command.Description,
-                command.ImageUrl,
-                command.ApiPrice,
-                command.CurrencyCode,
-                command.CurrencyRate,
+                importData.CategoryId,
+                importData.Name,
+                importData.Description,
+                importData.ImageUrl,
+                importData.ApiPrice,
+                importData.CurrencyCode,
+                importData.CurrencyRate,
                 dateTimeProvider.UtcNow);
         }
 
-        await auditService.RecordAsync(
-            isNewProduct
-                ? AdminAuditActions.Catalog.ProductImported
-                : AdminAuditActions.Catalog.ProductImportUpdated,
-            entityType: "CatalogProduct",
-            entityId: product.Id,
-            details: $"source={product.SourcePlatform}:{product.SourceProductId}",
-            cancellationToken: cancellationToken);
+        if (!isNewProduct)
+        {
+            await auditService.RecordAsync(
+                AdminAuditActions.Catalog.ProductImportUpdated,
+                entityType: "CatalogProduct",
+                entityId: product.Id,
+                details: $"source={product.SourcePlatform}:{product.SourceProductId}",
+                cancellationToken: cancellationToken);
+        }
+
+        await repository.AddAsync(CatalogImportLog.Succeeded(
+            product.SourcePlatform,
+            product.SourceProductId,
+            importProvider.Name,
+            product.Id,
+            isNewProduct ? CatalogImportOperation.Created : CatalogImportOperation.Updated,
+            currentUser.UserId,
+            dateTimeProvider.UtcNow));
+
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
+    }
+
+    private async Task<Result<CatalogProductResponse>> FailImportAsync(
+        ImportProductCommand command,
+        string providerName,
+        Error error,
+        CancellationToken cancellationToken)
+    {
+        await repository.AddAsync(CatalogImportLog.Failed(
+            command.SourcePlatform,
+            command.SourceProductId,
+            providerName,
+            error.Code,
+            error.Description,
+            currentUser.UserId,
+            dateTimeProvider.UtcNow));
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Failure<CatalogProductResponse>(error);
+    }
+
+    private static Error? ValidateImportData(CatalogImportProductData importData)
+    {
+        if (string.IsNullOrWhiteSpace(importData.Name))
+        {
+            return CatalogErrors.ProductNameRequired;
+        }
+
+        if (string.IsNullOrWhiteSpace(importData.SourcePlatform) ||
+            string.IsNullOrWhiteSpace(importData.SourceProductId))
+        {
+            return CatalogErrors.SourceProductRequired;
+        }
+
+        return importData.ApiPrice <= 0m ? CatalogErrors.ApiPriceInvalid : null;
     }
 }
 
 public sealed class ApproveProductCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    IAdminAuditService auditService)
+    ICurrentUser currentUser)
     : ICommandHandler<ApproveProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -151,12 +248,11 @@ public sealed class ApproveProductCommandHandler(
             return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
         }
 
-        product.Approve(dateTimeProvider.UtcNow);
-        await auditService.RecordAsync(
-            AdminAuditActions.Catalog.ProductApproved,
-            entityType: "CatalogProduct",
-            entityId: product.Id,
-            cancellationToken: cancellationToken);
+        if (!product.Approve(dateTimeProvider.UtcNow, currentUser.UserId))
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductStatusChangeInvalid);
+        }
+
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
@@ -166,7 +262,7 @@ public sealed class ApproveProductCommandHandler(
 public sealed class RejectProductCommandHandler(
     IMainRepository repository,
     IDateTimeProvider dateTimeProvider,
-    IAdminAuditService auditService)
+    ICurrentUser currentUser)
     : ICommandHandler<RejectProductCommand, CatalogProductResponse>
 {
     public async Task<Result<CatalogProductResponse>> Handle(
@@ -179,14 +275,91 @@ public sealed class RejectProductCommandHandler(
             return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
         }
 
-        product.Reject(dateTimeProvider.UtcNow);
-        await auditService.RecordAsync(
-            AdminAuditActions.Catalog.ProductRejected,
-            entityType: "CatalogProduct",
-            entityId: product.Id,
-            cancellationToken: cancellationToken);
+        if (!product.Reject(dateTimeProvider.UtcNow, currentUser.UserId))
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductStatusChangeInvalid);
+        }
+
         await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
 
+        return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
+    }
+}
+
+public sealed class ActivateProductCommandHandler(
+    IMainRepository repository,
+    IDateTimeProvider dateTimeProvider,
+    ICurrentUser currentUser)
+    : ICommandHandler<ActivateProductCommand, CatalogProductResponse>
+{
+    public async Task<Result<CatalogProductResponse>> Handle(
+        ActivateProductCommand command,
+        CancellationToken cancellationToken)
+    {
+        CatalogProduct? product = await repository.GetAsync<CatalogProduct>(command.ProductId);
+        if (product is null)
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
+        }
+
+        if (!product.Activate(dateTimeProvider.UtcNow, currentUser.UserId))
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductStatusChangeInvalid);
+        }
+
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
+    }
+}
+
+public sealed class DeactivateProductCommandHandler(
+    IMainRepository repository,
+    IDateTimeProvider dateTimeProvider,
+    ICurrentUser currentUser)
+    : ICommandHandler<DeactivateProductCommand, CatalogProductResponse>
+{
+    public async Task<Result<CatalogProductResponse>> Handle(
+        DeactivateProductCommand command,
+        CancellationToken cancellationToken)
+    {
+        CatalogProduct? product = await repository.GetAsync<CatalogProduct>(command.ProductId);
+        if (product is null)
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
+        }
+
+        if (!product.Deactivate(dateTimeProvider.UtcNow, currentUser.UserId))
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductStatusChangeInvalid);
+        }
+
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
+    }
+}
+
+public sealed class DeleteProductCommandHandler(
+    IMainRepository repository,
+    IDateTimeProvider dateTimeProvider,
+    ICurrentUser currentUser)
+    : ICommandHandler<DeleteProductCommand, CatalogProductResponse>
+{
+    public async Task<Result<CatalogProductResponse>> Handle(
+        DeleteProductCommand command,
+        CancellationToken cancellationToken)
+    {
+        CatalogProduct? product = await repository.GetAsync<CatalogProduct>(command.ProductId);
+        if (product is null)
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
+        }
+
+        if (!product.Delete(dateTimeProvider.UtcNow, currentUser.UserId))
+        {
+            return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductStatusChangeInvalid);
+        }
+
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success(await ProductMapper.MapAsync(repository, product, cancellationToken));
     }
 }
@@ -290,8 +463,15 @@ public sealed class GetCatalogProductsQueryHandler(IMainRepository repository)
         }
 
         int totalCount = await query.CountAsync(cancellationToken);
+        query = request.Sort switch
+        {
+            CatalogProductSort.NameDescending => query.OrderByDescending(product => product.Name),
+            CatalogProductSort.Newest => query.OrderByDescending(product => product.CreatedAtUtc),
+            CatalogProductSort.Oldest => query.OrderBy(product => product.CreatedAtUtc),
+            _ => query.OrderBy(product => product.Name)
+        };
+
         CatalogProduct[] products = await query
-            .OrderBy(product => product.Name)
             .Skip(pageRequest.Skip)
             .Take(pageRequest.NormalizedPageSize)
             .ToArrayAsync(cancellationToken);
@@ -318,7 +498,7 @@ public sealed class GetCatalogProductQueryHandler(IMainRepository repository)
         CancellationToken cancellationToken)
     {
         CatalogProduct? product = await repository.GetAsync<CatalogProduct>(request.ProductId);
-        if (product is null)
+        if (product is null || product.Status != ProductStatus.Approved)
         {
             return Result.Failure<CatalogProductResponse>(CatalogErrors.ProductNotFound);
         }

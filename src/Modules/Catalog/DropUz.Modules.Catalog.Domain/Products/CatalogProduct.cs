@@ -80,9 +80,10 @@ public sealed class CatalogProduct : Entity
         decimal apiPrice,
         string currencyCode,
         decimal currencyRate,
-        DateTime createdAtUtc)
+        DateTime createdAtUtc,
+        Guid? actorUserId = null)
     {
-        return new CatalogProduct(
+        var product = new CatalogProduct(
             Guid.NewGuid(),
             categoryId,
             name.Trim(),
@@ -95,6 +96,18 @@ public sealed class CatalogProduct : Entity
             string.IsNullOrWhiteSpace(currencyCode) ? "UZS" : currencyCode.Trim().ToUpperInvariant(),
             currencyRate,
             createdAtUtc);
+
+        product.RaiseDomainEvent(new ProductImportedDomainEvent(
+            product.Id,
+            product.SourcePlatform,
+            product.SourceProductId,
+            actorUserId,
+            createdAtUtc)
+        {
+            OccurredOnUtc = createdAtUtc
+        });
+
+        return product;
     }
 
     public Markup? ProductMarkup => DropUzMarkupType.HasValue && DropUzMarkupValue.HasValue
@@ -103,16 +116,54 @@ public sealed class CatalogProduct : Entity
 
     public decimal ApiPriceInUzs => decimal.Round(ApiPrice * CurrencyRate, 2, MidpointRounding.AwayFromZero);
 
-    public void Approve(DateTime nowUtc)
+    public bool Approve(DateTime nowUtc, Guid? actorUserId = null)
     {
+        if (Status == ProductStatus.Deleted)
+        {
+            return false;
+        }
+
         Status = ProductStatus.Approved;
         UpdatedAtUtc = nowUtc;
+        RaiseDomainEvent(new ProductApprovedDomainEvent(Id, actorUserId, nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
+
+        return true;
     }
 
-    public void Reject(DateTime nowUtc)
+    public bool Reject(DateTime nowUtc, Guid? actorUserId = null)
     {
+        if (Status == ProductStatus.Deleted)
+        {
+            return false;
+        }
+
         Status = ProductStatus.Rejected;
         UpdatedAtUtc = nowUtc;
+        RaiseDomainEvent(new ProductRejectedDomainEvent(Id, actorUserId, nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
+
+        return true;
+    }
+
+    public bool Deactivate(DateTime nowUtc, Guid? actorUserId = null)
+    {
+        return ChangeAvailability(ProductStatus.Inactive, nowUtc, actorUserId);
+    }
+
+    public bool Activate(DateTime nowUtc, Guid? actorUserId = null)
+    {
+        return Status == ProductStatus.Inactive &&
+               ChangeAvailability(ProductStatus.Approved, nowUtc, actorUserId);
+    }
+
+    public bool Delete(DateTime nowUtc, Guid? actorUserId = null)
+    {
+        return ChangeAvailability(ProductStatus.Deleted, nowUtc, actorUserId);
     }
 
     public void SetMarkup(Markup? markup, DateTime nowUtc)
@@ -140,5 +191,31 @@ public sealed class CatalogProduct : Entity
         CurrencyCode = string.IsNullOrWhiteSpace(currencyCode) ? CurrencyCode : currencyCode.Trim().ToUpperInvariant();
         CurrencyRate = currencyRate <= 0m ? CurrencyRate : currencyRate;
         UpdatedAtUtc = nowUtc;
+    }
+
+    private bool ChangeAvailability(
+        ProductStatus newStatus,
+        DateTime nowUtc,
+        Guid? actorUserId)
+    {
+        if (Status == ProductStatus.Deleted || Status == newStatus)
+        {
+            return false;
+        }
+
+        ProductStatus previousStatus = Status;
+        Status = newStatus;
+        UpdatedAtUtc = nowUtc;
+        RaiseDomainEvent(new ProductAvailabilityChangedDomainEvent(
+            Id,
+            previousStatus,
+            newStatus,
+            actorUserId,
+            nowUtc)
+        {
+            OccurredOnUtc = nowUtc
+        });
+
+        return true;
     }
 }

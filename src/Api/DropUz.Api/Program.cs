@@ -1,4 +1,5 @@
 using DropUz.Api.Extensions;
+using DropUz.Api.Infrastructure;
 using DropUz.Common.Infrastructure;
 using DropUz.Common.Presentation.Endpoints;
 using DropUz.Modules.Admin.Infrastructure;
@@ -33,12 +34,13 @@ namespace DropUz.Api
             // Add services to the container.
 
             builder.Services.AddDropUzCommonInfrastructure(builder.Configuration);
+            builder.Services.AddDropUzApiHardening(builder.Configuration);
             builder.Services.AddIdentityModule(builder.Configuration);
             builder.Services.AddCatalogModule();
             builder.Services.AddSellersModule();
             builder.Services.AddCartModule();
             builder.Services.AddOrdersModule();
-            builder.Services.AddNotificationsModule();
+            builder.Services.AddNotificationsModule(builder.Configuration);
             builder.Services.AddPaymentsModule();
             builder.Services.AddCargoModule(builder.Configuration);
             builder.Services.AddAdminModule();
@@ -57,7 +59,7 @@ namespace DropUz.Api
                 app.UseSwaggerUI();
             }
 
-            app.UseHttpsRedirection();
+            app.UseDropUzApiHardening();
 
             app.UseAuthentication();
             app.UseAuthorization();

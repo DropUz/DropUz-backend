@@ -15,11 +15,11 @@ public sealed class OrdersEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder orders = app
-            .MapGroup("/api/orders")
-            .WithTags("Orders");
+        RouteGroupBuilder orders = app.MapGroup("/api/orders");
 
         orders.MapGet("/status", () => Results.Ok(new { module = "orders", status = "ok" }))
+            .WithTags("Admin: Dashboard")
+            .RequireAdmin()
             .WithName("GetOrdersStatus");
 
         orders.MapPost("/", async (
@@ -27,6 +27,7 @@ public sealed class OrdersEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new CreateOrderFromCartCommand(request.SellerId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Orders")
             .RequireUser()
             .WithName("CreateOrderFromCart");
 
@@ -39,6 +40,7 @@ public sealed class OrdersEndpoints : IEndpoint
                     new GetMyOrdersQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
                     cancellationToken))
                 .ToHttpResult())
+            .WithTags("User: Orders")
             .RequireUser()
             .WithName("GetMyOrders");
 
@@ -47,6 +49,7 @@ public sealed class OrdersEndpoints : IEndpoint
             ISender sender,
             CancellationToken cancellationToken) =>
             (await sender.Send(new GetOrderQuery(orderId), cancellationToken)).ToHttpResult())
+            .WithTags("User: Orders")
             .RequireUser()
             .WithName("GetOrder");
 
@@ -59,13 +62,13 @@ public sealed class OrdersEndpoints : IEndpoint
                     new GetSellerOrdersQuery(new PageRequest(pageNumber ?? 1, pageSize ?? 20)),
                     cancellationToken))
                 .ToHttpResult())
-            .WithTags("Seller Orders")
+            .WithTags("Seller: Orders")
             .RequireSeller()
             .WithName("GetSellerOrders");
 
         RouteGroupBuilder admin = app
             .MapGroup("/api/admin/orders")
-            .WithTags("Admin Orders")
+            .WithTags("Admin: Orders")
             .RequireAdmin();
 
         admin.MapGet("/", async (

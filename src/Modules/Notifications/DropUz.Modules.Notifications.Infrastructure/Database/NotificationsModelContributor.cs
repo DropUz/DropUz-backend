@@ -24,10 +24,13 @@ internal sealed class NotificationMessageConfiguration : IEntityTypeConfiguratio
         builder.Property(message => message.Subject).HasMaxLength(300).IsRequired();
         builder.Property(message => message.Body).HasMaxLength(4000).IsRequired();
         builder.Property(message => message.FailureReason).HasMaxLength(1000);
+        builder.Property(message => message.ProviderName).HasMaxLength(100);
+        builder.Property(message => message.ProviderMessageId).HasMaxLength(300);
         builder.HasIndex(message => message.UserId);
         builder.HasIndex(message => message.OrderId);
         builder.HasIndex(message => message.Status);
         builder.HasIndex(message => message.CreatedAtUtc);
+        builder.HasIndex(message => new { message.Status, message.CreatedAtUtc });
     }
 }
 
