@@ -42,7 +42,8 @@ public sealed class NotificationService(
             body,
             dateTimeProvider.UtcNow);
 
-        await repository.AddAsync(message);
+        repository.Add(message);
+        await repository.UnitOfWork.SaveChangesAsync(cancellationToken);
     }
 }
 
@@ -72,7 +73,7 @@ public sealed class LinkTelegramCommandHandler(
 
         if (link is null)
         {
-            await repository.AddAsync(TelegramAccountLink.Create(
+            repository.Add(TelegramAccountLink.Create(
                 currentUser.UserId.Value,
                 command.ChatId,
                 dateTimeProvider.UtcNow));
